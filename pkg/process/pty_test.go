@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"io"
 	"os"
-	"os/exec"
 	"runtime"
 	"strings"
 	"syscall"
@@ -79,7 +78,7 @@ func TestPTYManager_CopyIO(t *testing.T) {
 
 	// Terminate the process
 	if ptyMgr.Process() != nil {
-		ptyMgr.Process().Signal(syscall.SIGTERM)
+		_ = ptyMgr.Process().Signal(syscall.SIGTERM)
 	}
 
 	// Wait for copy to finish
@@ -91,7 +90,7 @@ func TestPTYManager_CopyIO(t *testing.T) {
 	}
 
 	// Wait for process
-	ptyMgr.Wait()
+	_ = ptyMgr.Wait()
 
 	// Check that handler was called
 	if !handlerCalled {
@@ -163,7 +162,7 @@ func TestPTYManager_StartErrors(t *testing.T) {
 					t.Errorf("unexpected error: %v", err)
 				}
 				// Clean up
-				ptyMgr.Wait()
+				_ = ptyMgr.Wait()
 			}
 		})
 	}
@@ -192,8 +191,8 @@ func TestPTYManager_DoubleStart(t *testing.T) {
 	}
 
 	// Clean up
-	ptyMgr.Process().Signal(syscall.SIGTERM)
-	ptyMgr.Wait()
+	_ = ptyMgr.Process().Signal(syscall.SIGTERM)
+	_ = ptyMgr.Wait()
 }
 
 func TestPTYManager_WaitWithoutStart(t *testing.T) {
@@ -226,8 +225,8 @@ func TestPTYManager_ProcessMethods(t *testing.T) {
 func TestOutputReader(t *testing.T) {
 	// Create a pipe for testing
 	r, w := io.Pipe()
-	defer r.Close()
-	defer w.Close()
+	defer func() { _ = r.Close() }()
+	defer func() { _ = w.Close() }()
 
 	// Track handler calls
 	var handlerData [][]byte
@@ -247,8 +246,8 @@ func TestOutputReader(t *testing.T) {
 	// Write test data
 	testData := []byte("test data")
 	go func() {
-		w.Write(testData)
-		w.Close()
+		_, _ = w.Write(testData)
+		_ = w.Close()
 	}()
 
 	// Read through the output reader
@@ -271,12 +270,4 @@ func TestOutputReader(t *testing.T) {
 	} else if !bytes.Equal(handlerData[0], testData) {
 		t.Errorf("handler got %q but expected %q", handlerData[0], testData)
 	}
-}
-
-// MockCmd creates a mock exec.Cmd for testing
-func mockCmd(name string, args ...string) *exec.Cmd {
-	cmd := exec.Command(name, args...)
-	// Set a minimal environment to avoid inheriting test environment
-	cmd.Env = []string{"PATH=/usr/bin:/bin"}
-	return cmd
 }

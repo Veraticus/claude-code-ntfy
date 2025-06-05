@@ -70,10 +70,8 @@ func (m *Manager) sendBatch(notifications []Notification) {
 	}
 
 	// Send the combined notification
-	if err := m.notifier.Send(combined); err != nil {
-		// Log error but don't propagate - notifications are best effort
-		// Error logging would be done at the notifier level
-	}
+	// Errors are logged at the notifier level - notifications are best effort
+	_ = m.notifier.Send(combined)
 }
 
 // Close gracefully shuts down the manager
