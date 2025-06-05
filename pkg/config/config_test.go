@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
+	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -244,7 +244,7 @@ batch_window: "10s"
 		t.Run(tt.name, func(t *testing.T) {
 			// Create config file
 			configPath := filepath.Join(tmpDir, "config.yaml")
-			if err := os.WriteFile(configPath, []byte(tt.content), 0644); err != nil {
+			if err := os.WriteFile(configPath, []byte(tt.content), 0600); err != nil {
 				t.Fatalf("failed to write config file: %v", err)
 			}
 
@@ -278,13 +278,13 @@ batch_window: "10s"
 func TestCompilePatterns(t *testing.T) {
 	tests := []struct {
 		name     string
-		patterns []interfaces.Pattern
+		patterns []types.Pattern
 		wantErr  bool
 		errorMsg string
 	}{
 		{
 			name: "valid patterns",
-			patterns: []interfaces.Pattern{
+			patterns: []types.Pattern{
 				{Name: "test1", Regex: `\d+`, Enabled: true},
 				{Name: "test2", Regex: `[a-z]+`, Enabled: true},
 			},
@@ -292,7 +292,7 @@ func TestCompilePatterns(t *testing.T) {
 		},
 		{
 			name: "invalid regex",
-			patterns: []interfaces.Pattern{
+			patterns: []types.Pattern{
 				{Name: "bad", Regex: `[`, Enabled: true},
 			},
 			wantErr:  true,
@@ -300,14 +300,14 @@ func TestCompilePatterns(t *testing.T) {
 		},
 		{
 			name: "disabled pattern",
-			patterns: []interfaces.Pattern{
+			patterns: []types.Pattern{
 				{Name: "disabled", Regex: `[`, Enabled: false},
 			},
 			wantErr: false, // Should not compile disabled patterns
 		},
 		{
 			name: "empty regex",
-			patterns: []interfaces.Pattern{
+			patterns: []types.Pattern{
 				{Name: "empty", Regex: "", Enabled: true},
 			},
 			wantErr: false, // Empty regex is valid
@@ -524,7 +524,7 @@ func TestCompiledPatternMatching(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.patternName+"_"+tt.input, func(t *testing.T) {
 			// Find the pattern
-			var pattern *interfaces.Pattern
+			var pattern *types.Pattern
 			for i := range cfg.Patterns {
 				if cfg.Patterns[i].Name == tt.patternName {
 					pattern = &cfg.Patterns[i]

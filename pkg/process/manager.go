@@ -58,11 +58,7 @@ func (m *Manager) Start(command string, args []string) error {
 		if m.outputHandler != nil {
 			handler = func(data []byte) {
 				// Check if output handler supports raw data handling
-				type dataHandler interface {
-					HandleData([]byte)
-				}
-
-				if dh, ok := m.outputHandler.(dataHandler); ok {
+				if dh, ok := m.outputHandler.(interfaces.DataHandler); ok {
 					// Use raw data handler
 					dh.HandleData(data)
 				} else {

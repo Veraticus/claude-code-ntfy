@@ -2,11 +2,14 @@ package monitor
 
 import (
 	"bytes"
+	"fmt"
+	"os"
 	"sync"
 	"time"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
+	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 )
 
 // OutputMonitor monitors output for patterns and triggers notifications
@@ -80,16 +83,20 @@ func (om *OutputMonitor) processLine(line string) {
 	if om.shouldNotify() {
 		// Create notifications for each match
 		for _, match := range matches {
-			notification := interfaces.Notification{
+			notification := types.Notification{
 				Title:   "Claude Code Match: " + match.PatternName,
 				Message: line,
 				Time:    time.Now(),
 				Pattern: match.PatternName,
 			}
 
-			// Send notification (error handling done by notifier)
+			// Send notification
 			if om.notifier != nil {
-				om.notifier.Send(notification)
+				if err := om.notifier.Send(notification); err != nil {
+					// Log error but don't stop processing
+					// This ensures we continue monitoring even if notifications fail
+					fmt.Fprintf(os.Stderr, "claude-code-ntfy: notification error: %v\n", err)
+				}
 			}
 		}
 	}

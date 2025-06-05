@@ -6,19 +6,19 @@ import (
 	"time"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
-	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
+	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 )
 
 // MockPatternMatcher implements PatternMatcher for testing
 type MockPatternMatcher struct {
-	matches     []interfaces.MatchResult
-	matchFunc   func(string) []interfaces.MatchResult
+	matches     []types.MatchResult
+	matchFunc   func(string) []types.MatchResult
 	called      bool
 	callCount   int
 	calledLines []string
 }
 
-func (m *MockPatternMatcher) Match(text string) []interfaces.MatchResult {
+func (m *MockPatternMatcher) Match(text string) []types.MatchResult {
 	m.called = true
 	m.callCount++
 	m.calledLines = append(m.calledLines, text)
@@ -50,11 +50,11 @@ func (m *MockIdleDetector) LastActivity() time.Time {
 // MockNotifier implements Notifier for testing
 type MockNotifier struct {
 	mu            sync.Mutex
-	notifications []interfaces.Notification
+	notifications []types.Notification
 	sendError     error
 }
 
-func (m *MockNotifier) Send(notification interfaces.Notification) error {
+func (m *MockNotifier) Send(notification types.Notification) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -65,11 +65,11 @@ func (m *MockNotifier) Send(notification interfaces.Notification) error {
 	return nil
 }
 
-func (m *MockNotifier) GetNotifications() []interfaces.Notification {
+func (m *MockNotifier) GetNotifications() []types.Notification {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	result := make([]interfaces.Notification, len(m.notifications))
+	result := make([]types.Notification, len(m.notifications))
 	copy(result, m.notifications)
 	return result
 }
@@ -78,7 +78,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 	tests := []struct {
 		name          string
 		data          [][]byte
-		matches       []interfaces.MatchResult
+		matches       []types.MatchResult
 		config        *config.Config
 		isIdle        bool
 		wantNotifs    int
@@ -87,7 +87,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 		{
 			name: "single line with match",
 			data: [][]byte{[]byte("Error occurred\n")},
-			matches: []interfaces.MatchResult{
+			matches: []types.MatchResult{
 				{PatternName: "error", Text: "Error", Position: 0},
 			},
 			config:        &config.Config{IdleTimeout: 2 * time.Minute},
@@ -115,7 +115,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 				[]byte("line with "),
 				[]byte("Error\n"),
 			},
-			matches: []interfaces.MatchResult{
+			matches: []types.MatchResult{
 				{PatternName: "error", Text: "Error", Position: 15},
 			},
 			config:        &config.Config{IdleTimeout: 2 * time.Minute},
@@ -126,7 +126,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 		{
 			name:          "quiet mode - no notifications",
 			data:          [][]byte{[]byte("Error occurred\n")},
-			matches:       []interfaces.MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
+			matches:       []types.MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
 			config:        &config.Config{Quiet: true},
 			isIdle:        true,
 			wantNotifs:    0,
@@ -135,7 +135,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 		{
 			name:          "user active - no notifications",
 			data:          [][]byte{[]byte("Error occurred\n")},
-			matches:       []interfaces.MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
+			matches:       []types.MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
 			config:        &config.Config{IdleTimeout: 2 * time.Minute},
 			isIdle:        false,
 			wantNotifs:    0,
@@ -144,7 +144,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 		{
 			name:          "force notify - ignore idle",
 			data:          [][]byte{[]byte("Error occurred\n")},
-			matches:       []interfaces.MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
+			matches:       []types.MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
 			config:        &config.Config{ForceNotify: true},
 			isIdle:        false,
 			wantNotifs:    1,
@@ -153,7 +153,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 		{
 			name:          "no matches",
 			data:          [][]byte{[]byte("Normal line\n")},
-			matches:       []interfaces.MatchResult{},
+			matches:       []types.MatchResult{},
 			config:        &config.Config{},
 			isIdle:        true,
 			wantNotifs:    0,
@@ -167,18 +167,18 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 
 			// Set up match function for specific test cases
 			if tt.name == "multiple lines" {
-				mockMatcher.matchFunc = func(line string) []interfaces.MatchResult {
+				mockMatcher.matchFunc = func(line string) []types.MatchResult {
 					if line == "Error line" {
-						return []interfaces.MatchResult{
+						return []types.MatchResult{
 							{PatternName: "error", Text: "Error", Position: 0},
 						}
 					}
 					return nil
 				}
 			} else if tt.name == "incomplete line buffering" {
-				mockMatcher.matchFunc = func(line string) []interfaces.MatchResult {
+				mockMatcher.matchFunc = func(line string) []types.MatchResult {
 					if line == "Partial line with Error" {
-						return []interfaces.MatchResult{
+						return []types.MatchResult{
 							{PatternName: "error", Text: "Error", Position: 18},
 						}
 					}
@@ -211,7 +211,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 
 func TestOutputMonitor_HandleLine(t *testing.T) {
 	mockMatcher := &MockPatternMatcher{
-		matches: []interfaces.MatchResult{
+		matches: []types.MatchResult{
 			{PatternName: "test", Text: "test", Position: 0},
 		},
 	}
@@ -237,9 +237,9 @@ func TestOutputMonitor_HandleLine(t *testing.T) {
 
 func TestOutputMonitor_Flush(t *testing.T) {
 	mockMatcher := &MockPatternMatcher{
-		matchFunc: func(line string) []interfaces.MatchResult {
+		matchFunc: func(line string) []types.MatchResult {
 			if line == "incomplete line without newline" {
-				return []interfaces.MatchResult{
+				return []types.MatchResult{
 					{PatternName: "test", Text: "test", Position: 0},
 				}
 			}
@@ -271,7 +271,7 @@ func TestOutputMonitor_Flush(t *testing.T) {
 
 func TestOutputMonitor_MultipleMatches(t *testing.T) {
 	mockMatcher := &MockPatternMatcher{
-		matches: []interfaces.MatchResult{
+		matches: []types.MatchResult{
 			{PatternName: "error", Text: "ERROR", Position: 0},
 			{PatternName: "warning", Text: "WARNING", Position: 10},
 		},
@@ -305,7 +305,7 @@ func TestOutputMonitor_MultipleMatches(t *testing.T) {
 
 func TestOutputMonitor_NilNotifier(t *testing.T) {
 	mockMatcher := &MockPatternMatcher{
-		matches: []interfaces.MatchResult{
+		matches: []types.MatchResult{
 			{PatternName: "test", Text: "test", Position: 0},
 		},
 	}
@@ -320,7 +320,7 @@ func TestOutputMonitor_NilNotifier(t *testing.T) {
 
 func TestOutputMonitor_NilIdleDetector(t *testing.T) {
 	mockMatcher := &MockPatternMatcher{
-		matches: []interfaces.MatchResult{
+		matches: []types.MatchResult{
 			{PatternName: "test", Text: "test", Position: 0},
 		},
 	}

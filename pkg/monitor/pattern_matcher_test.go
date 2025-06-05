@@ -4,12 +4,12 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
+	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 )
 
 func TestPatternMatcher_Match(t *testing.T) {
 	// Create test patterns
-	patterns := []interfaces.Pattern{
+	patterns := []types.Pattern{
 		{
 			Name:    "numbers",
 			Regex:   `\d+`,
@@ -163,7 +163,7 @@ func TestPatternMatcher_Match(t *testing.T) {
 }
 
 func TestPatternMatcher_NewPatternMatcher(t *testing.T) {
-	patterns := []interfaces.Pattern{
+	patterns := []types.Pattern{
 		{
 			Name:    "enabled1",
 			Regex:   `test`,
@@ -213,7 +213,7 @@ func TestPatternMatcher_NewPatternMatcher(t *testing.T) {
 }
 
 func TestPatternMatcher_EmptyPatterns(t *testing.T) {
-	pm := NewPatternMatcher([]interfaces.Pattern{})
+	pm := NewPatternMatcher([]types.Pattern{})
 
 	results := pm.Match("test text with numbers 123")
 	if len(results) != 0 {
@@ -222,7 +222,7 @@ func TestPatternMatcher_EmptyPatterns(t *testing.T) {
 }
 
 func TestPatternMatcher_ComplexRegex(t *testing.T) {
-	patterns := []interfaces.Pattern{
+	patterns := []types.Pattern{
 		{
 			Name:    "ip_address",
 			Regex:   `\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`,

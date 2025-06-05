@@ -7,7 +7,7 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
+	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,7 +23,7 @@ type Config struct {
 	ForceNotify bool `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
 
 	// Pattern configuration
-	Patterns []interfaces.Pattern `yaml:"patterns"`
+	Patterns []types.Pattern `yaml:"patterns"`
 
 	// Rate limiting
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
@@ -43,7 +43,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		NtfyServer:  "https://ntfy.sh",
 		IdleTimeout: 2 * time.Minute,
-		Patterns: []interfaces.Pattern{
+		Patterns: []types.Pattern{
 			{
 				Name:    "bell",
 				Regex:   `\x07`,

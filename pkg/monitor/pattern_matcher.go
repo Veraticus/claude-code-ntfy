@@ -1,18 +1,18 @@
 package monitor
 
 import (
-	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
+	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 )
 
 // PatternMatcher implements pattern matching for output
 type PatternMatcher struct {
-	patterns []interfaces.Pattern
+	patterns []types.Pattern
 }
 
 // NewPatternMatcher creates a new pattern matcher
-func NewPatternMatcher(patterns []interfaces.Pattern) *PatternMatcher {
+func NewPatternMatcher(patterns []types.Pattern) *PatternMatcher {
 	// Filter only enabled patterns with compiled regex
-	enabledPatterns := make([]interfaces.Pattern, 0)
+	enabledPatterns := make([]types.Pattern, 0)
 	for _, p := range patterns {
 		if p.Enabled && p.CompiledRegex() != nil {
 			enabledPatterns = append(enabledPatterns, p)
@@ -25,8 +25,8 @@ func NewPatternMatcher(patterns []interfaces.Pattern) *PatternMatcher {
 }
 
 // Match finds all pattern matches in the given text
-func (pm *PatternMatcher) Match(text string) []interfaces.MatchResult {
-	var results []interfaces.MatchResult
+func (pm *PatternMatcher) Match(text string) []types.MatchResult {
+	var results []types.MatchResult
 
 	for _, pattern := range pm.patterns {
 		regex := pattern.CompiledRegex()
@@ -38,7 +38,7 @@ func (pm *PatternMatcher) Match(text string) []interfaces.MatchResult {
 		matches := regex.FindAllStringIndex(text, -1)
 		for _, match := range matches {
 			if len(match) >= 2 {
-				results = append(results, interfaces.MatchResult{
+				results = append(results, types.MatchResult{
 					PatternName: pattern.Name,
 					Text:        text[match[0]:match[1]],
 					Position:    match[0],
@@ -51,6 +51,6 @@ func (pm *PatternMatcher) Match(text string) []interfaces.MatchResult {
 }
 
 // GetPatterns returns the active patterns
-func (pm *PatternMatcher) GetPatterns() []interfaces.Pattern {
+func (pm *PatternMatcher) GetPatterns() []types.Pattern {
 	return pm.patterns
 }
