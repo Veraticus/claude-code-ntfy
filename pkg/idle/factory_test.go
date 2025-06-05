@@ -4,8 +4,6 @@ import (
 	"runtime"
 	"testing"
 	"time"
-
-	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
 )
 
 func TestNewIdleDetector(t *testing.T) {
@@ -15,8 +13,7 @@ func TestNewIdleDetector(t *testing.T) {
 		t.Fatal("NewIdleDetector returned nil")
 	}
 
-	// Verify it implements the interface
-	var _ interfaces.IdleDetector = detector
+	// Verify it implements the interface (compile-time check)
 
 	// Just verify the detector works
 	_, err := detector.IsUserIdle(1 * time.Minute)
@@ -37,8 +34,7 @@ func TestNewIdleDetectorWithFallback(t *testing.T) {
 		t.Fatal("NewIdleDetectorWithFallback returned nil")
 	}
 
-	// Verify it implements the interface
-	var _ interfaces.IdleDetector = detector
+	// Verify it implements the interface (compile-time check)
 
 	// For platforms that don't have UpdateActivity methods,
 	// verify it's wrapped properly

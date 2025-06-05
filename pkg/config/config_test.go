@@ -68,11 +68,11 @@ func TestLoadFromEnv(t *testing.T) {
 	origQuiet := os.Getenv("CLAUDE_NOTIFY_QUIET")
 	origForce := os.Getenv("CLAUDE_NOTIFY_FORCE")
 	defer func() {
-		os.Setenv("CLAUDE_NOTIFY_TOPIC", origTopic)
-		os.Setenv("CLAUDE_NOTIFY_SERVER", origServer)
-		os.Setenv("CLAUDE_NOTIFY_IDLE_TIMEOUT", origTimeout)
-		os.Setenv("CLAUDE_NOTIFY_QUIET", origQuiet)
-		os.Setenv("CLAUDE_NOTIFY_FORCE", origForce)
+		_ = os.Setenv("CLAUDE_NOTIFY_TOPIC", origTopic)
+		_ = os.Setenv("CLAUDE_NOTIFY_SERVER", origServer)
+		_ = os.Setenv("CLAUDE_NOTIFY_IDLE_TIMEOUT", origTimeout)
+		_ = os.Setenv("CLAUDE_NOTIFY_QUIET", origQuiet)
+		_ = os.Setenv("CLAUDE_NOTIFY_FORCE", origForce)
 	}()
 
 	tests := []struct {
@@ -149,16 +149,16 @@ func TestLoadFromEnv(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear all env vars first
-			os.Unsetenv("CLAUDE_NOTIFY_TOPIC")
-			os.Unsetenv("CLAUDE_NOTIFY_SERVER")
-			os.Unsetenv("CLAUDE_NOTIFY_IDLE_TIMEOUT")
-			os.Unsetenv("CLAUDE_NOTIFY_QUIET")
-			os.Unsetenv("CLAUDE_NOTIFY_FORCE")
-			os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_TOPIC")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_SERVER")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_IDLE_TIMEOUT")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_QUIET")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_FORCE")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
 
 			// Set test env vars
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 
 			// Load config
@@ -186,7 +186,7 @@ func TestLoadFromFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("failed to create temp dir: %v", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() { _ = os.RemoveAll(tmpDir) }()
 
 	tests := []struct {
 		name      string
@@ -247,12 +247,12 @@ batch_window: "10s"
 			}
 
 			// Set config path env var
-			os.Setenv("CLAUDE_NOTIFY_CONFIG", configPath)
-			defer os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
+			_ = os.Setenv("CLAUDE_NOTIFY_CONFIG", configPath)
+			defer func() { _ = os.Unsetenv("CLAUDE_NOTIFY_CONFIG") }()
 
 			// Clear other env vars to avoid interference
-			os.Unsetenv("CLAUDE_NOTIFY_TOPIC")
-			os.Unsetenv("CLAUDE_NOTIFY_SERVER")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_TOPIC")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_SERVER")
 
 			// Load config
 			cfg, err := Load()
@@ -437,9 +437,9 @@ func TestGetConfigPath(t *testing.T) {
 	origXDG := os.Getenv("XDG_CONFIG_HOME")
 	origHome := os.Getenv("HOME")
 	defer func() {
-		os.Setenv("CLAUDE_NOTIFY_CONFIG", origConfig)
-		os.Setenv("XDG_CONFIG_HOME", origXDG)
-		os.Setenv("HOME", origHome)
+		_ = os.Setenv("CLAUDE_NOTIFY_CONFIG", origConfig)
+		_ = os.Setenv("XDG_CONFIG_HOME", origXDG)
+		_ = os.Setenv("HOME", origHome)
 	}()
 
 	tests := []struct {
@@ -471,12 +471,12 @@ func TestGetConfigPath(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			// Clear env vars
-			os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
-			os.Unsetenv("XDG_CONFIG_HOME")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
+			_ = os.Unsetenv("XDG_CONFIG_HOME")
 
 			// Set test env vars
 			for k, v := range tt.envVars {
-				os.Setenv(k, v)
+				_ = os.Setenv(k, v)
 			}
 
 			path := getConfigPath()

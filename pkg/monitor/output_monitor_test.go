@@ -166,7 +166,8 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 			mockMatcher := &MockPatternMatcher{matches: tt.matches}
 
 			// Set up match function for specific test cases
-			if tt.name == "multiple lines" {
+			switch tt.name {
+			case "multiple lines":
 				mockMatcher.matchFunc = func(line string) []MatchResult {
 					if line == "Error line" {
 						return []MatchResult{
@@ -175,7 +176,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 					}
 					return nil
 				}
-			} else if tt.name == "incomplete line buffering" {
+			case "incomplete line buffering":
 				mockMatcher.matchFunc = func(line string) []MatchResult {
 					if line == "Partial line with Error" {
 						return []MatchResult{

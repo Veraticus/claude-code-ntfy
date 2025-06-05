@@ -112,8 +112,8 @@ func TestManager_Start(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			// Set environment
 			if tt.envWrapped != "" {
-				os.Setenv("CLAUDE_CODE_NTFY_WRAPPED", tt.envWrapped)
-				defer os.Unsetenv("CLAUDE_CODE_NTFY_WRAPPED")
+				_ = os.Setenv("CLAUDE_CODE_NTFY_WRAPPED", tt.envWrapped)
+				defer func() { _ = os.Unsetenv("CLAUDE_CODE_NTFY_WRAPPED") }()
 			}
 
 			cfg := config.DefaultConfig()
