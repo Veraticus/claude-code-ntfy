@@ -4,12 +4,12 @@ import (
 	"regexp"
 	"testing"
 
-	"github.com/Veraticus/claude-code-ntfy/pkg/types"
+	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 )
 
 func TestPatternMatcher_Match(t *testing.T) {
 	// Create test patterns
-	patterns := []types.Pattern{
+	patterns := []config.Pattern{
 		{
 			Name:    "numbers",
 			Regex:   `\d+`,
@@ -43,7 +43,7 @@ func TestPatternMatcher_Match(t *testing.T) {
 		}
 	}
 
-	pm := NewPatternMatcher(patterns)
+	pm := NewSimplePatternMatcher(patterns)
 
 	tests := []struct {
 		name     string
@@ -162,8 +162,8 @@ func TestPatternMatcher_Match(t *testing.T) {
 	}
 }
 
-func TestPatternMatcher_NewPatternMatcher(t *testing.T) {
-	patterns := []types.Pattern{
+func TestPatternMatcher_NewSimplePatternMatcher(t *testing.T) {
+	patterns := []config.Pattern{
 		{
 			Name:    "enabled1",
 			Regex:   `test`,
@@ -193,7 +193,7 @@ func TestPatternMatcher_NewPatternMatcher(t *testing.T) {
 		}
 	}
 
-	pm := NewPatternMatcher(patterns)
+	pm := NewSimplePatternMatcher(patterns)
 
 	// Should only have 2 patterns (enabled1 and enabled2)
 	activePatterns := pm.GetPatterns()
@@ -213,7 +213,7 @@ func TestPatternMatcher_NewPatternMatcher(t *testing.T) {
 }
 
 func TestPatternMatcher_EmptyPatterns(t *testing.T) {
-	pm := NewPatternMatcher([]types.Pattern{})
+	pm := NewSimplePatternMatcher([]config.Pattern{})
 
 	results := pm.Match("test text with numbers 123")
 	if len(results) != 0 {
@@ -222,7 +222,7 @@ func TestPatternMatcher_EmptyPatterns(t *testing.T) {
 }
 
 func TestPatternMatcher_ComplexRegex(t *testing.T) {
-	patterns := []types.Pattern{
+	patterns := []config.Pattern{
 		{
 			Name:    "ip_address",
 			Regex:   `\b(?:[0-9]{1,3}\.){3}[0-9]{1,3}\b`,
@@ -249,7 +249,7 @@ func TestPatternMatcher_ComplexRegex(t *testing.T) {
 		patterns[i].SetCompiledRegex(re)
 	}
 
-	pm := NewPatternMatcher(patterns)
+	pm := NewSimplePatternMatcher(patterns)
 
 	text := "Server 192.168.1.100 responded at 2024-01-15 14:30:45. Visit https://example.com for more info."
 	results := pm.Match(text)

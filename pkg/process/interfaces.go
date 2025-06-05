@@ -5,8 +5,8 @@ import (
 	"os"
 )
 
-// PTYInterface defines the interface for PTY operations
-type PTYInterface interface {
+// PTY defines the interface for PTY operations
+type PTY interface {
 	Start(command string, args []string, env []string) error
 	Wait() error
 	ProcessState() *os.ProcessState

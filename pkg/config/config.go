@@ -7,7 +7,6 @@ import (
 	"regexp"
 	"time"
 
-	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 	"gopkg.in/yaml.v3"
 )
 
@@ -23,13 +22,32 @@ type Config struct {
 	ForceNotify bool `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
 
 	// Pattern configuration
-	Patterns []types.Pattern `yaml:"patterns"`
+	Patterns []Pattern `yaml:"patterns"`
 
 	// Rate limiting
 	RateLimit RateLimitConfig `yaml:"rate_limit"`
 
 	// Batching
 	BatchWindow time.Duration `yaml:"batch_window"`
+}
+
+// Pattern represents a configurable pattern.
+type Pattern struct {
+	Name        string         `yaml:"name"`
+	Regex       string         `yaml:"regex"`
+	Description string         `yaml:"description"`
+	Enabled     bool           `yaml:"enabled"`
+	compiled    *regexp.Regexp `yaml:"-"`
+}
+
+// CompiledRegex returns the compiled regular expression
+func (p *Pattern) CompiledRegex() *regexp.Regexp {
+	return p.compiled
+}
+
+// SetCompiledRegex sets the compiled regular expression
+func (p *Pattern) SetCompiledRegex(re *regexp.Regexp) {
+	p.compiled = re
 }
 
 // RateLimitConfig holds rate limiting configuration
@@ -43,7 +61,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		NtfyServer:  "https://ntfy.sh",
 		IdleTimeout: 2 * time.Minute,
-		Patterns: []types.Pattern{
+		Patterns: []Pattern{
 			{
 				Name:    "bell",
 				Regex:   `\x07`,
@@ -125,6 +143,7 @@ func getConfigPath() string {
 
 // loadFromFile loads configuration from a YAML file
 func loadFromFile(cfg *Config, path string) error {
+	// #nosec G304 - The config file path comes from trusted sources (env var or standard locations)
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return err

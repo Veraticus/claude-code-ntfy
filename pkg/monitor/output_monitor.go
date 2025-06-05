@@ -9,15 +9,15 @@ import (
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
-	"github.com/Veraticus/claude-code-ntfy/pkg/types"
+	"github.com/Veraticus/claude-code-ntfy/pkg/notification"
 )
 
 // OutputMonitor monitors output for patterns and triggers notifications
 type OutputMonitor struct {
 	config         *config.Config
-	patternMatcher interfaces.PatternMatcher
+	patternMatcher PatternMatcher
 	idleDetector   interfaces.IdleDetector
-	notifier       interfaces.Notifier
+	notifier       notification.Notifier
 
 	mu             sync.Mutex
 	lastOutputTime time.Time
@@ -25,7 +25,7 @@ type OutputMonitor struct {
 }
 
 // NewOutputMonitor creates a new output monitor
-func NewOutputMonitor(cfg *config.Config, pm interfaces.PatternMatcher, idle interfaces.IdleDetector, notifier interfaces.Notifier) *OutputMonitor {
+func NewOutputMonitor(cfg *config.Config, pm PatternMatcher, idle interfaces.IdleDetector, notifier notification.Notifier) *OutputMonitor {
 	return &OutputMonitor{
 		config:         cfg,
 		patternMatcher: pm,
@@ -83,7 +83,7 @@ func (om *OutputMonitor) processLine(line string) {
 	if om.shouldNotify() {
 		// Create notifications for each match
 		for _, match := range matches {
-			notification := types.Notification{
+			n := notification.Notification{
 				Title:   "Claude Code Match: " + match.PatternName,
 				Message: line,
 				Time:    time.Now(),
@@ -92,7 +92,7 @@ func (om *OutputMonitor) processLine(line string) {
 
 			// Send notification
 			if om.notifier != nil {
-				if err := om.notifier.Send(notification); err != nil {
+				if err := om.notifier.Send(n); err != nil {
 					// Log error but don't stop processing
 					// This ensures we continue monitoring even if notifications fail
 					fmt.Fprintf(os.Stderr, "claude-code-ntfy: notification error: %v\n", err)

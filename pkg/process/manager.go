@@ -1,8 +1,6 @@
 package process
 
 import (
-	"bytes"
-	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -16,8 +14,8 @@ import (
 // Manager manages the wrapped Claude Code process
 type Manager struct {
 	config        *config.Config
-	ptyManager    PTYInterface
-	outputHandler interfaces.OutputHandler
+	ptyManager    PTY
+	outputHandler interfaces.DataHandler
 	exitCode      int
 	mu            sync.Mutex
 	sigChan       chan os.Signal
@@ -25,7 +23,7 @@ type Manager struct {
 }
 
 // NewManager creates a new process manager
-func NewManager(cfg *config.Config, outputHandler interfaces.OutputHandler) *Manager {
+func NewManager(cfg *config.Config, outputHandler interfaces.DataHandler) *Manager {
 	return &Manager{
 		config:        cfg,
 		ptyManager:    NewPTYManager(),
@@ -57,19 +55,7 @@ func (m *Manager) Start(command string, args []string) error {
 		var handler func([]byte)
 		if m.outputHandler != nil {
 			handler = func(data []byte) {
-				// Check if output handler supports raw data handling
-				if dh, ok := m.outputHandler.(interfaces.DataHandler); ok {
-					// Use raw data handler
-					dh.HandleData(data)
-				} else {
-					// Fall back to line-by-line processing
-					lines := bytes.Split(data, []byte{'\n'})
-					for _, line := range lines {
-						if len(line) > 0 {
-							m.outputHandler.HandleLine(string(line))
-						}
-					}
-				}
+				m.outputHandler.HandleData(data)
 			}
 		}
 		if err := m.ptyManager.CopyIO(os.Stdin, os.Stdout, os.Stderr, handler); err != nil {
@@ -138,7 +124,7 @@ func (m *Manager) forwardSignals() {
 				// Forward the signal to the child process
 				if err := m.ptyManager.Process().Signal(sig); err != nil {
 					// Process might have already exited, but log it
-					if !errors.Is(err, os.ErrProcessDone) {
+					if err != os.ErrProcessDone {
 						fmt.Fprintf(os.Stderr, "claude-code-ntfy: signal forward error: %v\n", err)
 					}
 				}
@@ -166,7 +152,7 @@ func (m *Manager) Stop() error {
 		// Send SIGTERM first for graceful shutdown
 		if err := m.ptyManager.Process().Signal(syscall.SIGTERM); err != nil {
 			// If SIGTERM fails, force kill
-			if !errors.Is(err, os.ErrProcessDone) {
+			if err != os.ErrProcessDone {
 				return m.ptyManager.Process().Kill()
 			}
 		}

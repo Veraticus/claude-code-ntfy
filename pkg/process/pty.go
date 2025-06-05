@@ -21,8 +21,8 @@ type PTYManager struct {
 	wg       sync.WaitGroup
 }
 
-// Ensure PTYManager implements PTYInterface
-var _ PTYInterface = (*PTYManager)(nil)
+// Ensure PTYManager implements PTY
+var _ PTY = (*PTYManager)(nil)
 
 // NewPTYManager creates a new PTY manager
 func NewPTYManager() *PTYManager {
@@ -88,7 +88,7 @@ func (p *PTYManager) Wait() error {
 	// Close PTY
 	p.mu.Lock()
 	if p.pty != nil {
-		p.pty.Close()
+		_ = p.pty.Close()
 	}
 	p.mu.Unlock()
 

@@ -6,8 +6,6 @@ import (
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/Veraticus/claude-code-ntfy/pkg/types"
 )
 
 func TestDefaultConfig(t *testing.T) {
@@ -278,13 +276,13 @@ batch_window: "10s"
 func TestCompilePatterns(t *testing.T) {
 	tests := []struct {
 		name     string
-		patterns []types.Pattern
+		patterns []Pattern
 		wantErr  bool
 		errorMsg string
 	}{
 		{
 			name: "valid patterns",
-			patterns: []types.Pattern{
+			patterns: []Pattern{
 				{Name: "test1", Regex: `\d+`, Enabled: true},
 				{Name: "test2", Regex: `[a-z]+`, Enabled: true},
 			},
@@ -292,7 +290,7 @@ func TestCompilePatterns(t *testing.T) {
 		},
 		{
 			name: "invalid regex",
-			patterns: []types.Pattern{
+			patterns: []Pattern{
 				{Name: "bad", Regex: `[`, Enabled: true},
 			},
 			wantErr:  true,
@@ -300,14 +298,14 @@ func TestCompilePatterns(t *testing.T) {
 		},
 		{
 			name: "disabled pattern",
-			patterns: []types.Pattern{
+			patterns: []Pattern{
 				{Name: "disabled", Regex: `[`, Enabled: false},
 			},
 			wantErr: false, // Should not compile disabled patterns
 		},
 		{
 			name: "empty regex",
-			patterns: []types.Pattern{
+			patterns: []Pattern{
 				{Name: "empty", Regex: "", Enabled: true},
 			},
 			wantErr: false, // Empty regex is valid
@@ -524,7 +522,7 @@ func TestCompiledPatternMatching(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.patternName+"_"+tt.input, func(t *testing.T) {
 			// Find the pattern
-			var pattern *types.Pattern
+			var pattern *Pattern
 			for i := range cfg.Patterns {
 				if cfg.Patterns[i].Name == tt.patternName {
 					pattern = &cfg.Patterns[i]
