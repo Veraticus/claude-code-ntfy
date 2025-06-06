@@ -188,25 +188,25 @@ func findClaude() (string, error) {
 
 	for _, dir := range filepath.SplitList(pathEnv) {
 		claudePath := filepath.Join(dir, "claude")
-		
+
 		// Check if file exists and is executable
 		info, err := os.Stat(claudePath)
 		if err != nil {
 			continue // Not found in this directory
 		}
-		
+
 		if info.Mode().IsRegular() && info.Mode()&0111 != 0 {
 			// Resolve symlinks to check if it's us
 			resolvedPath, err := filepath.EvalSymlinks(claudePath)
 			if err != nil {
 				continue
 			}
-			
+
 			// Skip if it's our own binary
 			if resolvedPath == ourPath {
 				continue
 			}
-			
+
 			// Found a different claude binary
 			return claudePath, nil
 		}

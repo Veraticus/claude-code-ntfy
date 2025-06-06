@@ -154,7 +154,7 @@ func (m *Manager) Stop() error {
 	if m.ptyManager != nil {
 		// Ensure terminal is restored
 		_ = m.ptyManager.Stop()
-		
+
 		if m.ptyManager.Process() != nil {
 			// Send SIGTERM first for graceful shutdown
 			if err := m.ptyManager.Process().Signal(syscall.SIGTERM); err != nil {

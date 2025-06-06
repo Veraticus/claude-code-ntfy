@@ -116,13 +116,13 @@ func (p *PTYManager) Process() *os.Process {
 func (p *PTYManager) Stop() error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	
+
 	// Restore terminal if needed
 	if p.restoreFunc != nil {
 		p.restoreFunc()
 		p.restoreFunc = nil
 	}
-	
+
 	return nil
 }
 

@@ -13,7 +13,8 @@ func setRawMode(fd int) (func(), error) {
 	var oldState syscall.Termios
 
 	// Get current terminal settings
-	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlReadTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 { //nolint:gosec // Required for terminal operations
+	// #nosec G103 -- Required for terminal operations
+	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlReadTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0); err != 0 {
 		return nil, err
 	}
 
@@ -27,13 +28,14 @@ func setRawMode(fd int) (func(), error) {
 	newState.Cflag |= syscall.CS8
 
 	// Set raw mode
-	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 { //nolint:gosec // Required for terminal operations
+	// #nosec G103 -- Required for terminal operations
+	if _, _, err := syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&newState)), 0, 0, 0); err != 0 {
 		return nil, err
 	}
 
 	// Return restore function
 	return func() {
 		// Best effort restore - we can't return an error from this function
-		_, _, _ = syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0) //nolint:gosec // Required for terminal operations
+		_, _, _ = syscall.Syscall6(syscall.SYS_IOCTL, uintptr(fd), ioctlWriteTermios, uintptr(unsafe.Pointer(&oldState)), 0, 0, 0) // #nosec G103 -- Required for terminal operations
 	}, nil
 }

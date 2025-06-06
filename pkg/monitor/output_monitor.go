@@ -124,7 +124,7 @@ func (om *OutputMonitor) processLine(line string) {
 				if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
 					fmt.Fprintf(os.Stderr, "claude-code-ntfy: pattern '%s' matched in line: %q\n", match.PatternName, line)
 				}
-				
+
 				if err := om.notifier.Send(n); err != nil {
 					// Log error but don't stop processing
 					// This ensures we continue monitoring even if notifications fail
