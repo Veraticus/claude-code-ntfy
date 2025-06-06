@@ -1,15 +1,25 @@
 # claude-code-ntfy
 
-A transparent wrapper for Claude Code that monitors output and sends notifications via [ntfy.sh](https://ntfy.sh) based on configurable patterns and user activity.
+A transparent wrapper for Claude Code that sends a notification when Claude needs your attention.
 
 ## Features
 
-- = Smart notifications based on output patterns
-- >� Transparent wrapping - preserves all Claude Code functionality
-- =� User idle detection to avoid interruptions
-- <� Configurable regex patterns for triggers
-- =� Rate limiting and notification batching
-- =' Cross-platform support (Linux/macOS)
+- 🔔 Single notification when Claude needs attention
+- 🔄 Transparent wrapping - preserves all Claude Code functionality
+- 💤 Intelligent inactivity detection
+- 🖥️ Cross-platform support (Linux/macOS)
+
+### Intelligent Inactivity Detection
+
+The backstop timer provides smart notifications when Claude might need your attention:
+
+- **While Claude is outputting**: Timer is continuously reset
+- **When Claude stops**: A 30-second countdown begins
+- **If you start typing**: Timer is permanently disabled
+- **If Claude sent a bell**: Timer is disabled (you're already notified)
+- **After 30 seconds of inactivity**: ONE notification is sent
+
+This ensures you're notified when Claude needs input, but not when you're actively working.
 
 ## Installation
 
@@ -76,7 +86,7 @@ let
   claude-code-ntfy = pkgs.callPackage (pkgs.fetchFromGitHub {
     owner = "Veraticus";
     repo = "claude-code-ntfy";
-    rev = "ba76a6ce3b0bce2b17e5b9d528b8f4f80ec93cf8";
+    rev = "main";
     sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
   } + "/default.nix") { };
 in
@@ -98,18 +108,7 @@ For user-level installation with configuration management:
     settings = {
       ntfy_topic = "my-claude-notifications";
       ntfy_server = "https://ntfy.sh";
-      idle_timeout = "2m";
-      patterns = [
-        {
-          name = "error";
-          regex = "(?i)(error|failed|exception)";
-          enabled = true;
-        }
-      ];
-      rate_limit = {
-        window = "1m";
-        max_messages = 5;
-      };
+      backstop_timeout = "30s";
     };
   };
 }
@@ -143,33 +142,18 @@ Configure via environment variables:
 
 - `CLAUDE_NOTIFY_TOPIC` - Ntfy topic for notifications (required)
 - `CLAUDE_NOTIFY_SERVER` - Ntfy server URL (default: https://ntfy.sh)
-- `CLAUDE_NOTIFY_IDLE_TIMEOUT` - User idle timeout (default: 2m)
+- `CLAUDE_NOTIFY_BACKSTOP_TIMEOUT` - Inactivity timeout (default: 30s)
 - `CLAUDE_NOTIFY_QUIET` - Disable notifications (true/false)
-- `CLAUDE_NOTIFY_FORCE` - Force notifications even when active (true/false)
+- `CLAUDE_NOTIFY_CLAUDE_PATH` - Path to the real claude binary
 
 Or use a config file at `~/.config/claude-code-ntfy/config.yaml`:
 
 ```yaml
 ntfy_topic: "my-claude-notifications"
 ntfy_server: "https://ntfy.sh"
-idle_timeout: "2m"
-
-patterns:
-  - name: "bell"
-    regex: '\x07'
-    enabled: true
-  - name: "question"
-    regex: '\?\s*$'
-    enabled: true
-  - name: "error"
-    regex: '(?i)(error|failed|exception)'
-    enabled: true
-
-rate_limit:
-  window: "1m"
-  max_messages: 5
-
-batch_window: "5s"
+backstop_timeout: "30s"
+quiet: false
+claude_path: "/usr/local/bin/claude"
 ```
 
 ## Development

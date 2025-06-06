@@ -62,7 +62,7 @@ func (m *MockPTYManager) GetPTY() *os.File {
 	return nil
 }
 
-func (m *MockPTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, handler func([]byte)) error {
+func (m *MockPTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHandler func([]byte), inputHandler func()) error {
 	if m.ioFunc != nil {
 		m.ioFunc()
 	}

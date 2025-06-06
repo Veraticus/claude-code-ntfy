@@ -3,30 +3,21 @@ package main
 import (
 	"fmt"
 	"os"
-	"time"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
-	"github.com/Veraticus/claude-code-ntfy/pkg/idle"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
 	"github.com/Veraticus/claude-code-ntfy/pkg/monitor"
 	"github.com/Veraticus/claude-code-ntfy/pkg/notification"
 	"github.com/Veraticus/claude-code-ntfy/pkg/process"
-	"github.com/Veraticus/claude-code-ntfy/pkg/status"
 )
 
 // Dependencies holds all the dependencies for the application
 type Dependencies struct {
-	Config              *config.Config
-	IdleDetector        interfaces.IdleDetector
-	Notifier            notification.Notifier
-	RateLimiter         interfaces.RateLimiter
-	PatternMatcher      monitor.PatternMatcher
-	NotificationManager *notification.Manager
-	OutputMonitor       interfaces.DataHandler
-	ProcessManager      *process.Manager
-	StatusIndicator     *status.Indicator
-	StatusReporter      *status.Reporter
-	stopChan            chan struct{}
+	Config         *config.Config
+	Notifier       notification.Notifier
+	OutputMonitor  interfaces.DataHandler
+	ProcessManager *process.Manager
+	stopChan       chan struct{}
 }
 
 // NewDependencies creates all dependencies with the given configuration
@@ -36,59 +27,32 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 		stopChan: make(chan struct{}),
 	}
 
-	// Create idle detector
-	deps.IdleDetector = idle.NewIdleDetector()
-
-	// Create status indicator (only enabled if we have a terminal and notifications are enabled)
-	// The indicator will only flash briefly when notifications are sent
-	isTerminal := isatty(os.Stderr.Fd())
-	statusEnabled := isTerminal && !cfg.Quiet && cfg.NtfyTopic != ""
-	deps.StatusIndicator = status.NewIndicator(os.Stderr, statusEnabled)
-	deps.StatusReporter = status.NewReporter(deps.StatusIndicator)
-
-	// Start auto-refresh to keep the indicator visible despite Claude's screen clears
-	deps.StatusIndicator.StartAutoRefresh(deps.stopChan)
-
-	// Create pattern matcher and output monitor first (needed for terminal title)
-	deps.PatternMatcher = monitor.NewSimplePatternMatcher(cfg.Patterns)
-	outputMonitor := monitor.NewOutputMonitor(cfg, deps.PatternMatcher, deps.IdleDetector, nil) // nil notifier for now
-	deps.OutputMonitor = outputMonitor
-
 	// Create notification components
 	baseNotifier := notification.NewNtfyClient(cfg.NtfyServer, cfg.NtfyTopic)
 
-	// Wrap with context notifier
-	contextNotifier := notification.NewContextNotifier(baseNotifier, func() string {
-		return outputMonitor.GetTerminalTitle()
-	})
-
 	// Wrap with backstop notifier if configured
-	var finalNotifier notification.Notifier = contextNotifier
+	var finalNotifier notification.Notifier = baseNotifier
 	if cfg.BackstopTimeout > 0 {
-		finalNotifier = notification.NewBackstopNotifier(contextNotifier, cfg.BackstopTimeout)
+		finalNotifier = notification.NewBackstopNotifier(baseNotifier, cfg.BackstopTimeout)
 	}
 	deps.Notifier = finalNotifier
 
-	deps.RateLimiter = notification.NewTokenBucketRateLimiter(cfg.RateLimit.MaxMessages, cfg.RateLimit.Window)
-	deps.NotificationManager = notification.NewManager(cfg, deps.Notifier, deps.RateLimiter)
+	// Create output monitor with the notifier
+	outputMonitor := monitor.NewOutputMonitor(cfg, deps.Notifier)
+	deps.OutputMonitor = outputMonitor
 
-	// Connect status reporter to notification manager
-	deps.NotificationManager.SetStatusReporter(deps.StatusReporter)
-
-	// Now set the notification manager on the output monitor
-	outputMonitor.SetNotifier(deps.NotificationManager)
-
-	// Connect status indicator to output monitor for screen clear detection
-	if statusEnabled {
-		outputMonitor.SetScreenEventHandler(deps.StatusIndicator)
-		// Enable focus reporting display if configured
-		if cfg.EnableFocusDetection {
-			deps.StatusIndicator.SetFocusReportingEnabled(true)
+	// Create input handler that disables backstop timer
+	inputHandler := func() {
+		if backstopNotifier, ok := deps.Notifier.(*notification.BackstopNotifier); ok {
+			backstopNotifier.DisableBackstopTimer()
+			if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+				fmt.Fprintf(os.Stderr, "claude-code-ntfy: user input detected, disabling backstop timer\n")
+			}
 		}
 	}
 
 	// Create process manager
-	deps.ProcessManager = process.NewManager(cfg, deps.OutputMonitor)
+	deps.ProcessManager = process.NewManager(cfg, deps.OutputMonitor, inputHandler)
 
 	return deps, nil
 }
@@ -106,19 +70,10 @@ func (d *Dependencies) Close() {
 		d.stopChan = nil
 	}
 
-	// Clean up status indicator
-	if d.StatusIndicator != nil {
-		_ = d.StatusIndicator.Clear() // Best effort
-	}
-
 	// Close notifiers
 	// First try to close as backstop notifier
 	if backstopNotifier, ok := d.Notifier.(*notification.BackstopNotifier); ok {
 		_ = backstopNotifier.Close()
-	}
-
-	if d.NotificationManager != nil {
-		_ = d.NotificationManager.Close()
 	}
 }
 
@@ -136,23 +91,7 @@ func NewApplication(deps *Dependencies) *Application {
 
 // Run starts the application with the given command and arguments
 func (a *Application) Run(command string, args []string) error {
-	// Send startup notification if configured
-	if a.deps.Config.StartupNotify && !a.deps.Config.Quiet && a.deps.NotificationManager != nil {
-		pwd, _ := os.Getwd()
-		startupNotification := notification.Notification{
-			Title:   "Claude Code Session Started",
-			Message: fmt.Sprintf("Working directory: %s", pwd),
-			Time:    time.Now(),
-			Pattern: "startup",
-		}
-		_ = a.deps.NotificationManager.Send(startupNotification)
-
-		// After sending startup notification, update the startup time in output monitor
-		// to suppress subsequent notifications for StartupGracePeriod
-		if om, ok := a.deps.OutputMonitor.(*monitor.OutputMonitor); ok {
-			om.ResetStartTime()
-		}
-	}
+	// No startup notification - we only notify when Claude needs attention
 
 	if err := a.deps.ProcessManager.Start(command, args); err != nil {
 		return err

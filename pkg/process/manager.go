@@ -17,6 +17,7 @@ type Manager struct {
 	config        *config.Config
 	ptyManager    PTY
 	outputHandler interfaces.DataHandler
+	inputHandler  func()
 	exitCode      int
 	mu            sync.Mutex
 	sigChan       chan os.Signal
@@ -24,11 +25,12 @@ type Manager struct {
 }
 
 // NewManager creates a new process manager
-func NewManager(cfg *config.Config, outputHandler interfaces.DataHandler) *Manager {
+func NewManager(cfg *config.Config, outputHandler interfaces.DataHandler, inputHandler func()) *Manager {
 	return &Manager{
 		config:        cfg,
 		ptyManager:    NewPTYManager(),
 		outputHandler: outputHandler,
+		inputHandler:  inputHandler,
 		done:          make(chan struct{}),
 	}
 }
@@ -67,7 +69,7 @@ func (m *Manager) Start(command string, args []string) error {
 				m.outputHandler.HandleData(data)
 			}
 		}
-		if err := m.ptyManager.CopyIO(os.Stdin, os.Stdout, os.Stderr, handler); err != nil {
+		if err := m.ptyManager.CopyIO(os.Stdin, os.Stdout, os.Stderr, handler, m.inputHandler); err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code-ntfy: I/O error: %v\n", err)
 		}
 	}()

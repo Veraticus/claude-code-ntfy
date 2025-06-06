@@ -1,7 +1,7 @@
 package monitor
 
 import (
-	"regexp"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -10,692 +10,237 @@ import (
 	"github.com/Veraticus/claude-code-ntfy/pkg/notification"
 )
 
-// MockPatternMatcher implements PatternMatcher for testing
-type MockPatternMatcher struct {
-	matches     []MatchResult
-	matchFunc   func(string) []MatchResult
-	called      bool
-	callCount   int
-	calledLines []string
-}
-
-func (m *MockPatternMatcher) Match(text string) []MatchResult {
-	m.called = true
-	m.callCount++
-	m.calledLines = append(m.calledLines, text)
-
-	if m.matchFunc != nil {
-		return m.matchFunc(text)
-	}
-	return m.matches
-}
-
-// MockIdleDetector implements IdleDetector for testing
-type MockIdleDetector struct {
-	isIdle       bool
-	idleError    error
-	lastActivity time.Time
-}
-
-func (m *MockIdleDetector) IsUserIdle(threshold time.Duration) (bool, error) {
-	if m.idleError != nil {
-		return false, m.idleError
-	}
-	return m.isIdle, nil
-}
-
-func (m *MockIdleDetector) LastActivity() time.Time {
-	return m.lastActivity
-}
-
 // MockNotifier implements Notifier for testing
 type MockNotifier struct {
-	mu            sync.Mutex
-	notifications []notification.Notification
-	sendError     error
+	mu       sync.Mutex
+	sent     []notification.Notification
+	sendErr  error
+	activity []time.Time
 }
 
-func (m *MockNotifier) Send(notification notification.Notification) error {
+func (m *MockNotifier) Send(n notification.Notification) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-
-	if m.sendError != nil {
-		return m.sendError
+	if m.sendErr != nil {
+		return m.sendErr
 	}
-	m.notifications = append(m.notifications, notification)
+	m.sent = append(m.sent, n)
 	return nil
 }
 
-func (m *MockNotifier) GetNotifications() []notification.Notification {
+func (m *MockNotifier) MarkActivity() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	m.activity = append(m.activity, time.Now())
+}
 
-	result := make([]notification.Notification, len(m.notifications))
-	copy(result, m.notifications)
+func (m *MockNotifier) GetSent() []notification.Notification {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	result := make([]notification.Notification, len(m.sent))
+	copy(result, m.sent)
 	return result
+}
+
+func (m *MockNotifier) GetActivityCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.activity)
+}
+
+// MockBackstopNotifier implements backstop-specific methods
+type MockBackstopNotifier struct {
+	MockNotifier
+	backstopSent     bool
+	backstopDisabled bool
+	sessionReset     int
+}
+
+func (m *MockBackstopNotifier) SetBackstopSent(sent bool) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.backstopSent = sent
+}
+
+func (m *MockBackstopNotifier) ResetSession() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.sessionReset++
+}
+
+func (m *MockBackstopNotifier) DisableBackstopTimer() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.backstopDisabled = true
 }
 
 func TestOutputMonitor_HandleData(t *testing.T) {
 	tests := []struct {
-		name          string
-		data          [][]byte
-		matches       []MatchResult
-		config        *config.Config
-		isIdle        bool
-		wantNotifs    int
-		wantProcessed bool
+		name               string
+		data               []byte
+		expectActivity     bool
+		expectBellDetected bool
 	}{
 		{
-			name: "single line with match",
-			data: [][]byte{[]byte("Error occurred\n")},
-			matches: []MatchResult{
-				{PatternName: "error", Text: "Error", Position: 0},
-			},
-			config:        &config.Config{IdleTimeout: 2 * time.Minute},
-			isIdle:        true,
-			wantNotifs:    1,
-			wantProcessed: true,
+			name:           "regular output marks activity",
+			data:           []byte("Hello world\n"),
+			expectActivity: true,
 		},
 		{
-			name: "multiple lines",
-			data: [][]byte{
-				[]byte("Line 1\n"),
-				[]byte("Error line\n"),
-				[]byte("Line 3\n"),
-			},
-			matches:       nil, // Will use matchFunc instead
-			config:        &config.Config{IdleTimeout: 2 * time.Minute},
-			isIdle:        true,
-			wantNotifs:    1,
-			wantProcessed: true,
+			name:               "bell character disables backstop",
+			data:               []byte("Bell: \x07\n"),
+			expectActivity:     true,
+			expectBellDetected: true,
 		},
 		{
-			name: "incomplete line buffering",
-			data: [][]byte{
-				[]byte("Partial "),
-				[]byte("line with "),
-				[]byte("Error\n"),
-			},
-			matches: []MatchResult{
-				{PatternName: "error", Text: "Error", Position: 15},
-			},
-			config:        &config.Config{IdleTimeout: 2 * time.Minute},
-			isIdle:        true,
-			wantNotifs:    1,
-			wantProcessed: true,
+			name:           "multiple lines processed",
+			data:           []byte("Line 1\nLine 2\nLine 3\n"),
+			expectActivity: true,
 		},
 		{
-			name:          "quiet mode - no notifications",
-			data:          [][]byte{[]byte("Error occurred\n")},
-			matches:       []MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
-			config:        &config.Config{Quiet: true},
-			isIdle:        true,
-			wantNotifs:    0,
-			wantProcessed: false, // Pattern matcher should not be called in quiet mode
-		},
-		{
-			name:          "user active - no notifications",
-			data:          [][]byte{[]byte("Error occurred\n")},
-			matches:       []MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
-			config:        &config.Config{IdleTimeout: 2 * time.Minute},
-			isIdle:        false,
-			wantNotifs:    0,
-			wantProcessed: true,
-		},
-		{
-			name:          "force notify - ignore idle",
-			data:          [][]byte{[]byte("Error occurred\n")},
-			matches:       []MatchResult{{PatternName: "error", Text: "Error", Position: 0}},
-			config:        &config.Config{ForceNotify: true},
-			isIdle:        false,
-			wantNotifs:    1,
-			wantProcessed: true,
-		},
-		{
-			name:          "no matches",
-			data:          [][]byte{[]byte("Normal line\n")},
-			matches:       []MatchResult{},
-			config:        &config.Config{},
-			isIdle:        true,
-			wantNotifs:    0,
-			wantProcessed: true,
+			name:           "partial line buffered",
+			data:           []byte("Partial line without newline"),
+			expectActivity: true,
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			mockMatcher := &MockPatternMatcher{matches: tt.matches}
+			// Clear debug env
+			_ = os.Unsetenv("CLAUDE_NOTIFY_DEBUG")
 
-			// Set up match function for specific test cases
-			switch tt.name {
-			case "multiple lines":
-				mockMatcher.matchFunc = func(line string) []MatchResult {
-					if line == "Error line" {
-						return []MatchResult{
-							{PatternName: "error", Text: "Error", Position: 0},
-						}
-					}
-					return nil
-				}
-			case "incomplete line buffering":
-				mockMatcher.matchFunc = func(line string) []MatchResult {
-					if line == "Partial line with Error" {
-						return []MatchResult{
-							{PatternName: "error", Text: "Error", Position: 18},
-						}
-					}
-					return nil
+			cfg := &config.Config{}
+			mockNotifier := &MockBackstopNotifier{}
+			om := NewOutputMonitor(cfg, mockNotifier)
+
+			// Handle the data
+			om.HandleData(tt.data)
+
+			// Check activity was marked
+			if tt.expectActivity {
+				activityCount := mockNotifier.GetActivityCount()
+				if activityCount == 0 {
+					t.Error("expected activity to be marked")
 				}
 			}
 
-			mockIdle := &MockIdleDetector{isIdle: tt.isIdle}
-			mockNotifier := &MockNotifier{}
-
-			monitor := NewOutputMonitor(tt.config, mockMatcher, mockIdle, mockNotifier)
-
-			// Process data
-			for _, data := range tt.data {
-				monitor.HandleData(data)
-			}
-
-			// Check results
-			notifs := mockNotifier.GetNotifications()
-			if len(notifs) != tt.wantNotifs {
-				t.Errorf("expected %d notifications but got %d", tt.wantNotifs, len(notifs))
-			}
-
-			if tt.wantProcessed && !mockMatcher.called {
-				t.Error("pattern matcher was not called")
+			// Check bell detection
+			if tt.expectBellDetected {
+				mockNotifier.mu.Lock()
+				backstopSent := mockNotifier.backstopSent
+				mockNotifier.mu.Unlock()
+				if !backstopSent {
+					t.Error("expected backstop to be marked as sent after bell")
+				}
 			}
 		})
 	}
 }
 
-// mockScreenEventHandler tracks screen clear events for testing
-type mockScreenEventHandlerOM struct {
-	mu               sync.Mutex
-	screenClearCount int
-	titleChanges     []string
-	focusInCount     int
-	focusOutCount    int
-}
+func TestOutputMonitor_ScreenClear(t *testing.T) {
+	cfg := &config.Config{}
+	mockNotifier := &MockBackstopNotifier{}
+	om := NewOutputMonitor(cfg, mockNotifier)
 
-func (m *mockScreenEventHandlerOM) HandleScreenClear() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.screenClearCount++
-}
+	// Simulate screen clear
+	om.HandleScreenClear()
 
-func (m *mockScreenEventHandlerOM) HandleTitleChange(title string) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.titleChanges = append(m.titleChanges, title)
-}
+	// Check session was reset
+	mockNotifier.mu.Lock()
+	resets := mockNotifier.sessionReset
+	mockNotifier.mu.Unlock()
 
-func (m *mockScreenEventHandlerOM) HandleFocusIn() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.focusInCount++
-}
-
-func (m *mockScreenEventHandlerOM) HandleFocusOut() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.focusOutCount++
-}
-
-func TestOutputMonitorActivityTracking(t *testing.T) {
-	// Create a mock activity marker to track when activity is marked
-	mockActivityMarker := &mockActivityMarkerOM{}
-
-	cfg := &config.Config{
-		Patterns: []config.Pattern{
-			{Name: "test", Regex: "test", Enabled: true},
-		},
-	}
-
-	// Compile patterns
-	for i := range cfg.Patterns {
-		pattern := &cfg.Patterns[i]
-		if pattern.Regex != "" {
-			re := regexp.MustCompile(pattern.Regex)
-			pattern.SetCompiledRegex(re)
-		}
-	}
-
-	mockMatcher := &MockPatternMatcher{}
-	mockIdle := &MockIdleDetector{isIdle: true}
-
-	om := NewOutputMonitor(cfg, mockMatcher, mockIdle, mockActivityMarker)
-
-	// Test 1: Regular Claude output should mark activity
-	regularOutput := []byte("This is a test output\n")
-	om.HandleData(regularOutput)
-
-	if mockActivityMarker.activityCount != 1 {
-		t.Errorf("Expected activity to be marked once for regular output, got %d", mockActivityMarker.activityCount)
-	}
-
-	// Test 2: Empty line should NOT mark activity
-	emptyLine := []byte("\n")
-	om.HandleData(emptyLine)
-
-	if mockActivityMarker.activityCount != 1 {
-		t.Errorf("Expected activity count to remain 1 after empty line, got %d", mockActivityMarker.activityCount)
-	}
-
-	// Test 3: Line with only ANSI sequences should NOT mark activity
-	ansiOnlyLine := []byte("\033[32m\033[0m\n")
-	om.HandleData(ansiOnlyLine)
-
-	if mockActivityMarker.activityCount != 1 {
-		t.Errorf("Expected activity count to remain 1 after ANSI-only line, got %d", mockActivityMarker.activityCount)
-	}
-
-	// Test 4: Bell character alone should mark activity
-	bellLine := []byte("\x07\n")
-	om.HandleData(bellLine)
-
-	if mockActivityMarker.activityCount != 2 {
-		t.Errorf("Expected activity to be marked for bell character, got %d", mockActivityMarker.activityCount)
-	}
-
-	// Test 5: Another regular output should mark activity again
-	om.HandleData([]byte("More test output\n"))
-
-	if mockActivityMarker.activityCount != 3 {
-		t.Errorf("Expected activity to be marked three times total, got %d", mockActivityMarker.activityCount)
+	if resets != 1 {
+		t.Errorf("expected 1 session reset, got %d", resets)
 	}
 }
 
-// mockActivityMarkerOM implements both Notifier and ActivityMarker interfaces
-type mockActivityMarkerOM struct {
-	mu            sync.Mutex
-	activityCount int
-	notifications []notification.Notification
-}
+func TestOutputMonitor_BellDetection(t *testing.T) {
+	cfg := &config.Config{}
+	mockNotifier := &MockBackstopNotifier{}
+	om := NewOutputMonitor(cfg, mockNotifier)
 
-func (m *mockActivityMarkerOM) Send(n notification.Notification) error {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.notifications = append(m.notifications, n)
-	return nil
-}
-
-func (m *mockActivityMarkerOM) MarkActivity() {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	m.activityCount++
-}
-
-func TestOutputMonitorScreenEventHandling(t *testing.T) {
+	// Test various bell scenarios
 	tests := []struct {
-		name           string
-		input          []byte
-		expectedClears int
+		name       string
+		input      string
+		expectBell bool
 	}{
-		{
-			name:           "screen clear sequence triggers handler",
-			input:          []byte("text\033[2Jmore text"),
-			expectedClears: 1,
-		},
-		{
-			name:           "multiple clear sequences",
-			input:          []byte("\033[2J\033[3J\033[H"),
-			expectedClears: 1, // Only triggers once per batch
-		},
-		{
-			name:           "no clear sequences",
-			input:          []byte("normal output\nwith newlines\n"),
-			expectedClears: 0,
-		},
+		{"bell in middle", "test\x07text", true},
+		{"bell at start", "\x07text", true},
+		{"bell at end", "text\x07", true},
+		{"no bell", "regular text", false},
+		{"bell across lines", "line1\nbell\x07\nline3", true},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{
-				Patterns: []config.Pattern{{Regex: "test", Name: "test"}},
-			}
-
-			matcher := &MockPatternMatcher{}
-			idleDetector := &MockIdleDetector{isIdle: true}
-			notifier := &MockNotifier{}
-
-			monitor := NewOutputMonitor(cfg, matcher, idleDetector, notifier)
-
-			// Set up screen event handler
-			handler := &mockScreenEventHandlerOM{}
-			monitor.SetScreenEventHandler(handler)
+			// Reset notifier
+			mockNotifier = &MockBackstopNotifier{}
+			om.SetNotifier(mockNotifier)
 
 			// Process the input
-			monitor.HandleData(tt.input)
+			om.HandleData([]byte(tt.input + "\n"))
 
-			// Check screen clear count
-			handler.mu.Lock()
-			clearCount := handler.screenClearCount
-			handler.mu.Unlock()
+			// Check if bell was detected
+			mockNotifier.mu.Lock()
+			backstopSent := mockNotifier.backstopSent
+			mockNotifier.mu.Unlock()
 
-			if clearCount != tt.expectedClears {
-				t.Errorf("expected %d screen clears, got %d", tt.expectedClears, clearCount)
+			if tt.expectBell && !backstopSent {
+				t.Error("expected bell to be detected")
+			} else if !tt.expectBell && backstopSent {
+				t.Error("bell detected when not expected")
 			}
 		})
 	}
 }
 
-func TestOutputMonitorSetScreenEventHandler(t *testing.T) {
+func TestOutputMonitor_LastOutputTime(t *testing.T) {
 	cfg := &config.Config{}
-	monitor := NewOutputMonitor(cfg, nil, nil, nil)
-
-	// Initially set to self
-	if monitor.screenEventHandler != monitor {
-		t.Error("expected screen event handler to be set to self initially")
-	}
-
-	// Set handler
-	handler := &mockScreenEventHandlerOM{}
-	monitor.SetScreenEventHandler(handler)
-
-	// Verify it was set
-	monitor.mu.Lock()
-	hasHandler := monitor.screenEventHandler != nil
-	monitor.mu.Unlock()
-
-	if !hasHandler {
-		t.Error("expected screen event handler to be set")
-	}
-}
-
-func TestOutputMonitor_HandleLine(t *testing.T) {
-	mockMatcher := &MockPatternMatcher{
-		matches: []MatchResult{
-			{PatternName: "test", Text: "test", Position: 0},
-		},
-	}
-	mockIdle := &MockIdleDetector{isIdle: true}
 	mockNotifier := &MockNotifier{}
+	om := NewOutputMonitor(cfg, mockNotifier)
 
-	config := &config.Config{IdleTimeout: 2 * time.Minute}
-	monitor := NewOutputMonitor(config, mockMatcher, mockIdle, mockNotifier)
+	// Get initial time
+	initialTime := om.GetLastOutputTime()
 
-	// Test HandleLine
-	monitor.HandleLine("test line")
+	// Wait a bit
+	time.Sleep(10 * time.Millisecond)
 
-	notifs := mockNotifier.GetNotifications()
-	if len(notifs) != 1 {
-		t.Errorf("expected 1 notification but got %d", len(notifs))
-	}
+	// Handle some data
+	om.HandleData([]byte("test output\n"))
 
-	// Check last output time was updated
-	if time.Since(monitor.GetLastOutputTime()) > time.Second {
-		t.Error("last output time was not updated")
-	}
-}
-
-func TestOutputMonitor_Flush(t *testing.T) {
-	mockMatcher := &MockPatternMatcher{
-		matchFunc: func(line string) []MatchResult {
-			if line == "incomplete line without newline" {
-				return []MatchResult{
-					{PatternName: "test", Text: "test", Position: 0},
-				}
-			}
-			return nil
-		},
-	}
-	mockIdle := &MockIdleDetector{isIdle: true}
-	mockNotifier := &MockNotifier{}
-
-	config := &config.Config{IdleTimeout: 2 * time.Minute}
-	monitor := NewOutputMonitor(config, mockMatcher, mockIdle, mockNotifier)
-
-	// Add incomplete line
-	monitor.HandleData([]byte("incomplete line without newline"))
-
-	// Should have no notifications yet
-	if len(mockNotifier.GetNotifications()) != 0 {
-		t.Error("notification sent before flush")
-	}
-
-	// Flush should process the line
-	monitor.Flush()
-
-	notifs := mockNotifier.GetNotifications()
-	if len(notifs) != 1 {
-		t.Errorf("expected 1 notification after flush but got %d", len(notifs))
+	// Check time was updated
+	newTime := om.GetLastOutputTime()
+	if !newTime.After(initialTime) {
+		t.Error("expected last output time to be updated")
 	}
 }
 
-func TestOutputMonitor_MultipleMatches(t *testing.T) {
-	mockMatcher := &MockPatternMatcher{
-		matches: []MatchResult{
-			{PatternName: "error", Text: "ERROR", Position: 0},
-			{PatternName: "warning", Text: "WARNING", Position: 10},
-		},
-	}
-	mockIdle := &MockIdleDetector{isIdle: true}
-	mockNotifier := &MockNotifier{}
+func TestOutputMonitor_FlushPartialLine(t *testing.T) {
+	cfg := &config.Config{}
+	mockNotifier := &MockBackstopNotifier{}
+	om := NewOutputMonitor(cfg, mockNotifier)
 
-	config := &config.Config{IdleTimeout: 2 * time.Minute}
-	monitor := NewOutputMonitor(config, mockMatcher, mockIdle, mockNotifier)
+	// Send partial line with bell
+	om.HandleData([]byte("partial with bell\x07"))
 
-	monitor.HandleData([]byte("ERROR and WARNING in same line\n"))
-
-	notifs := mockNotifier.GetNotifications()
-	if len(notifs) != 2 {
-		t.Errorf("expected 2 notifications but got %d", len(notifs))
+	// Initially bell shouldn't be detected (no newline)
+	mockNotifier.mu.Lock()
+	backstopSent := mockNotifier.backstopSent
+	mockNotifier.mu.Unlock()
+	if backstopSent {
+		t.Error("bell should not be detected until line is complete")
 	}
 
-	// Check notification content
-	patterns := make(map[string]bool)
-	for _, n := range notifs {
-		patterns[n.Pattern] = true
-		if n.Message != "ERROR and WARNING in same line" {
-			t.Errorf("unexpected message: %s", n.Message)
-		}
-	}
+	// Flush should process the partial line
+	om.Flush()
 
-	if !patterns["error"] || !patterns["warning"] {
-		t.Error("not all patterns were notified")
+	// Now bell should be detected
+	mockNotifier.mu.Lock()
+	backstopSent = mockNotifier.backstopSent
+	mockNotifier.mu.Unlock()
+	if !backstopSent {
+		t.Error("bell should be detected after flush")
 	}
 }
-
-func TestOutputMonitor_NilNotifier(t *testing.T) {
-	mockMatcher := &MockPatternMatcher{
-		matches: []MatchResult{
-			{PatternName: "test", Text: "test", Position: 0},
-		},
-	}
-	mockIdle := &MockIdleDetector{isIdle: true}
-
-	config := &config.Config{IdleTimeout: 2 * time.Minute}
-	monitor := NewOutputMonitor(config, mockMatcher, mockIdle, nil)
-
-	// Should not panic with nil notifier
-	monitor.HandleData([]byte("test line\n"))
-}
-
-func TestOutputMonitor_NilIdleDetector(t *testing.T) {
-	mockMatcher := &MockPatternMatcher{
-		matches: []MatchResult{
-			{PatternName: "test", Text: "test", Position: 0},
-		},
-	}
-	mockNotifier := &MockNotifier{}
-
-	config := &config.Config{IdleTimeout: 2 * time.Minute}
-	monitor := NewOutputMonitor(config, mockMatcher, nil, mockNotifier)
-
-	// Should still send notifications when idle detector is nil
-	monitor.HandleData([]byte("test line\n"))
-
-	notifs := mockNotifier.GetNotifications()
-	if len(notifs) != 1 {
-		t.Errorf("expected 1 notification but got %d", len(notifs))
-	}
-}
-
-func TestOutputMonitor_LineBuffering(t *testing.T) {
-	tests := []struct {
-		name            string
-		inputs          [][]byte
-		wantBufferEmpty bool
-	}{
-		{
-			name:            "single complete line",
-			inputs:          [][]byte{[]byte("line1\n")},
-			wantBufferEmpty: true,
-		},
-		{
-			name:            "incomplete line",
-			inputs:          [][]byte{[]byte("incomplete")},
-			wantBufferEmpty: false,
-		},
-		{
-			name:            "incomplete then complete",
-			inputs:          [][]byte{[]byte("part1 "), []byte("part2\n")},
-			wantBufferEmpty: true,
-		},
-		{
-			name:            "multiple lines with remainder",
-			inputs:          [][]byte{[]byte("line1\nline2\npart")},
-			wantBufferEmpty: false,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			mockMatcher := &MockPatternMatcher{}
-			config := &config.Config{}
-			monitor := NewOutputMonitor(config, mockMatcher, nil, nil)
-
-			for _, input := range tt.inputs {
-				monitor.HandleData(input)
-			}
-
-			// Check buffer state
-			hasData := monitor.lineBuffer.Len() > 0
-			if tt.wantBufferEmpty && hasData {
-				t.Errorf("expected empty buffer but has %d bytes", monitor.lineBuffer.Len())
-			}
-			if !tt.wantBufferEmpty && !hasData {
-				t.Error("expected data in buffer but it's empty")
-			}
-		})
-	}
-}
-
-func TestOutputMonitorTerminalTitleInNotifications(t *testing.T) {
-	cfg := &config.Config{
-		ForceNotify: true, // Always notify for this test
-	}
-
-	matcher := &MockPatternMatcher{
-		matches: []MatchResult{
-			{PatternName: "test", Text: "matched", Position: 0},
-		},
-	}
-
-	notifier := &MockNotifier{}
-	monitor := NewOutputMonitor(cfg, matcher, nil, notifier)
-
-	// Send terminal title change
-	monitor.HandleData([]byte("\033]0;My Task Title\007"))
-
-	// Send a line that matches
-	monitor.HandleData([]byte("matched line\n"))
-
-	// Check notification
-	notifs := notifier.GetNotifications()
-	if len(notifs) != 1 {
-		t.Fatalf("expected 1 notification, got %d", len(notifs))
-	}
-
-	// Verify title is simple (context is added by ContextNotifier now)
-	expectedTitle := "Claude Code: test"
-	if notifs[0].Title != expectedTitle {
-		t.Errorf("expected title %q, got %q", expectedTitle, notifs[0].Title)
-	}
-}
-
-func TestOutputMonitorFocusBasedNotificationSuppression(t *testing.T) {
-	tests := []struct {
-		name           string
-		focusReporting bool
-		isFocused      bool
-		forceNotify    bool
-		expectNotify   bool
-	}{
-		{
-			name:           "focused terminal suppresses notifications",
-			focusReporting: true,
-			isFocused:      true,
-			forceNotify:    false,
-			expectNotify:   false,
-		},
-		{
-			name:           "unfocused terminal allows notifications",
-			focusReporting: true,
-			isFocused:      false,
-			forceNotify:    false,
-			expectNotify:   true,
-		},
-		{
-			name:           "force notify overrides focus",
-			focusReporting: true,
-			isFocused:      true,
-			forceNotify:    true,
-			expectNotify:   true,
-		},
-		{
-			name:           "focus reporting disabled ignores focus state",
-			focusReporting: false,
-			isFocused:      true,
-			forceNotify:    false,
-			expectNotify:   true,
-		},
-	}
-
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			cfg := &config.Config{
-				ForceNotify: tt.forceNotify,
-			}
-
-			matcher := &MockPatternMatcher{
-				matches: []MatchResult{
-					{PatternName: "test", Text: "matched", Position: 0},
-				},
-			}
-
-			notifier := &MockNotifier{}
-			monitor := NewOutputMonitor(cfg, matcher, nil, notifier)
-
-			// Set focus state
-			monitor.SetFocusReportingEnabled(tt.focusReporting)
-			if tt.isFocused {
-				monitor.HandleFocusIn()
-			} else {
-				monitor.HandleFocusOut()
-			}
-
-			// Send a matching line
-			monitor.HandleData([]byte("matched line\n"))
-
-			// Check notifications
-			notifs := notifier.GetNotifications()
-			if tt.expectNotify {
-				if len(notifs) != 1 {
-					t.Errorf("expected 1 notification, got %d", len(notifs))
-				}
-			} else {
-				if len(notifs) != 0 {
-					t.Errorf("expected no notifications, got %d", len(notifs))
-				}
-			}
-		})
-	}
-}
-
-// Note: Testing idle state updates in status indicator is not included here
-// because it depends on a type assertion to *status.Indicator which is an
-// implementation detail. The functionality is tested via integration tests.

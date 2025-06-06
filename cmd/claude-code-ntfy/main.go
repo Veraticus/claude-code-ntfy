@@ -15,17 +15,13 @@ import (
 func main() {
 	// Parse command line flags
 	var (
-		configPath    string
-		quiet         bool
-		forceNotify   bool
-		startupNotify bool
-		help          bool
+		configPath string
+		quiet      bool
+		help       bool
 	)
 
 	flag.StringVar(&configPath, "config", "", "Path to config file")
 	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications")
-	flag.BoolVar(&forceNotify, "force", false, "Force notifications even when user is active")
-	flag.BoolVar(&startupNotify, "startup", false, "Send notification on startup with current directory")
 	flag.BoolVar(&help, "help", false, "Show help message")
 	flag.Parse()
 
@@ -51,12 +47,6 @@ func main() {
 	}
 	if quiet {
 		cfg.Quiet = true
-	}
-	if forceNotify {
-		cfg.ForceNotify = true
-	}
-	if startupNotify {
-		cfg.StartupNotify = true
 	}
 
 	// Get Claude command and args
@@ -87,12 +77,8 @@ func main() {
 		}
 	}
 
-	// Merge default args with user args
-	var args []string
-	if len(cfg.DefaultClaudeArgs) > 0 {
-		args = append(args, cfg.DefaultClaudeArgs...)
-	}
-	args = append(args, userArgs...)
+	// Use user args directly
+	args := userArgs
 
 	// Create dependencies
 	deps, err := NewDependencies(cfg)
@@ -157,11 +143,8 @@ func printUsage() {
 	fmt.Println("Environment Variables:")
 	fmt.Println("  CLAUDE_NOTIFY_TOPIC       Ntfy topic for notifications")
 	fmt.Println("  CLAUDE_NOTIFY_SERVER      Ntfy server URL (default: https://ntfy.sh)")
-	fmt.Println("  CLAUDE_NOTIFY_IDLE_TIMEOUT  User idle timeout (default: 2m)")
+	fmt.Println("  CLAUDE_NOTIFY_BACKSTOP_TIMEOUT  Inactivity timeout (default: 30s)")
 	fmt.Println("  CLAUDE_NOTIFY_QUIET       Disable notifications (true/false)")
-	fmt.Println("  CLAUDE_NOTIFY_FORCE       Force notifications (true/false)")
-	fmt.Println("  CLAUDE_NOTIFY_STARTUP     Send startup notification (true/false)")
-	fmt.Println("  CLAUDE_NOTIFY_DEFAULT_ARGS  Default Claude args (comma-separated)")
 	fmt.Println("  CLAUDE_NOTIFY_CONFIG      Path to config file")
 	fmt.Println("  CLAUDE_NOTIFY_CLAUDE_PATH  Path to the real claude binary")
 	fmt.Println()

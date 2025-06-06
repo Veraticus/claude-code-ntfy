@@ -20,6 +20,7 @@ type BackstopNotifier struct {
 	lastActivityTime     time.Time
 	timer                *time.Timer
 	backstopSent         bool // Track if backstop notification was sent for current session
+	backstopDisabled     bool // Track if backstop timer has been disabled by user input
 }
 
 // NewBackstopNotifier creates a new backstop notifier
@@ -69,8 +70,9 @@ func (bn *BackstopNotifier) MarkActivity() {
 
 	bn.lastActivityTime = time.Now()
 
-	// Reset backstop sent flag since we have new activity
+	// Reset backstop sent flag and disabled flag since we have new activity
 	bn.backstopSent = false
+	bn.backstopDisabled = false
 
 	// Reset the timer
 	if bn.timer != nil {
@@ -87,15 +89,15 @@ func (bn *BackstopNotifier) sendBackstopNotification() {
 	bn.mu.Lock()
 	defer bn.mu.Unlock()
 
-	// Only send if we haven't already sent a backstop for this session
-	if bn.backstopSent {
+	// Only send if we haven't already sent a backstop for this session and it's not disabled
+	if bn.backstopSent || bn.backstopDisabled {
 		return
 	}
 
 	// Send backstop notification
 	notification := Notification{
-		Title:   "Claude Code: Inactive",
-		Message: "No activity detected - task may be complete",
+		Title:   "Claude needs attention",
+		Message: "No activity detected",
 		Time:    time.Now(),
 		Pattern: "backstop",
 	}
@@ -138,6 +140,7 @@ func (bn *BackstopNotifier) ResetSession() {
 	defer bn.mu.Unlock()
 
 	bn.backstopSent = false
+	bn.backstopDisabled = false
 	bn.lastActivityTime = time.Now()
 
 	// Reset the timer
@@ -147,6 +150,19 @@ func (bn *BackstopNotifier) ResetSession() {
 	// Start a new timer for the new session
 	if bn.timeout > 0 {
 		bn.timer = time.AfterFunc(bn.timeout, bn.sendBackstopNotification)
+	}
+}
+
+// DisableBackstopTimer disables the backstop timer (e.g., when user input is detected)
+func (bn *BackstopNotifier) DisableBackstopTimer() {
+	bn.mu.Lock()
+	defer bn.mu.Unlock()
+
+	bn.backstopDisabled = true
+
+	// Stop the timer
+	if bn.timer != nil {
+		bn.timer.Stop()
 	}
 }
 

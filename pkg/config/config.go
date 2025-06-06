@@ -4,8 +4,6 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"regexp"
-	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -14,94 +12,24 @@ import (
 // Config holds all configuration for claude-code-ntfy
 type Config struct {
 	// Notification settings
-	NtfyTopic   string        `yaml:"ntfy_topic" env:"CLAUDE_NOTIFY_TOPIC"`
-	NtfyServer  string        `yaml:"ntfy_server" env:"CLAUDE_NOTIFY_SERVER"`
-	IdleTimeout time.Duration `yaml:"idle_timeout" env:"CLAUDE_NOTIFY_IDLE_TIMEOUT"`
+	NtfyTopic  string `yaml:"ntfy_topic" env:"CLAUDE_NOTIFY_TOPIC"`
+	NtfyServer string `yaml:"ntfy_server" env:"CLAUDE_NOTIFY_SERVER"`
 
 	// Behavior flags
-	Quiet                bool          `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
-	ForceNotify          bool          `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
-	StartupNotify        bool          `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
-	StartupGracePeriod   time.Duration `yaml:"startup_grace_period" env:"CLAUDE_NOTIFY_STARTUP_GRACE"`
-	DefaultClaudeArgs    []string      `yaml:"default_claude_args"`
-	EnableFocusDetection bool          `yaml:"enable_focus_detection" env:"CLAUDE_NOTIFY_FOCUS_DETECTION"`
+	Quiet bool `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
 
 	// Backstop notification - send notification after inactivity
 	BackstopTimeout time.Duration `yaml:"backstop_timeout" env:"CLAUDE_NOTIFY_BACKSTOP_TIMEOUT"`
 
 	// Claude path configuration
 	ClaudePath string `yaml:"claude_path" env:"CLAUDE_NOTIFY_CLAUDE_PATH"`
-
-	// Pattern configuration
-	Patterns []Pattern `yaml:"patterns"`
-
-	// Rate limiting
-	RateLimit RateLimitConfig `yaml:"rate_limit"`
-
-	// Batching
-	BatchWindow time.Duration `yaml:"batch_window"`
-}
-
-// Pattern represents a configurable pattern.
-type Pattern struct {
-	Name        string         `yaml:"name"`
-	Regex       string         `yaml:"regex"`
-	Description string         `yaml:"description"`
-	Enabled     bool           `yaml:"enabled"`
-	compiled    *regexp.Regexp `yaml:"-"`
-}
-
-// CompiledRegex returns the compiled regular expression
-func (p *Pattern) CompiledRegex() *regexp.Regexp {
-	return p.compiled
-}
-
-// SetCompiledRegex sets the compiled regular expression
-func (p *Pattern) SetCompiledRegex(re *regexp.Regexp) {
-	p.compiled = re
-}
-
-// RateLimitConfig holds rate limiting configuration
-type RateLimitConfig struct {
-	Window      time.Duration `yaml:"window"`
-	MaxMessages int           `yaml:"max_messages"`
 }
 
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		NtfyServer:           "https://ntfy.sh",
-		IdleTimeout:          2 * time.Minute,
-		StartupGracePeriod:   10 * time.Second,
-		EnableFocusDetection: true,
-		BackstopTimeout:      30 * time.Second,
-		Patterns: []Pattern{
-			{
-				Name:    "bell",
-				Regex:   `\x07`,
-				Enabled: true,
-			},
-			{
-				Name:    "question",
-				Regex:   `\?\s*$`,
-				Enabled: true,
-			},
-			{
-				Name:    "error",
-				Regex:   `(?i)(\berror:|\bfailed:|\bexception:|✗|❌)\s`,
-				Enabled: true,
-			},
-			{
-				Name:    "completion",
-				Regex:   `(?i)(✓|✅|task completed|build succeeded|all tests pass)`,
-				Enabled: true,
-			},
-		},
-		RateLimit: RateLimitConfig{
-			Window:      1 * time.Minute,
-			MaxMessages: 5,
-		},
-		BatchWindow: 5 * time.Second,
+		NtfyServer:      "https://ntfy.sh",
+		BackstopTimeout: 30 * time.Second,
 	}
 }
 
@@ -120,11 +48,6 @@ func Load() (*Config, error) {
 	// Override with environment variables
 	if err := loadFromEnv(cfg); err != nil {
 		return nil, fmt.Errorf("failed to load from environment: %w", err)
-	}
-
-	// Compile regex patterns
-	if err := compilePatterns(cfg); err != nil {
-		return nil, fmt.Errorf("failed to compile patterns: %w", err)
 	}
 
 	// Validate configuration
@@ -176,12 +99,12 @@ func loadFromEnv(cfg *Config) error {
 		cfg.NtfyServer = server
 	}
 
-	if timeout := os.Getenv("CLAUDE_NOTIFY_IDLE_TIMEOUT"); timeout != "" {
+	if timeout := os.Getenv("CLAUDE_NOTIFY_BACKSTOP_TIMEOUT"); timeout != "" {
 		d, err := time.ParseDuration(timeout)
 		if err != nil {
-			return fmt.Errorf("invalid CLAUDE_NOTIFY_IDLE_TIMEOUT: %w", err)
+			return fmt.Errorf("invalid CLAUDE_NOTIFY_BACKSTOP_TIMEOUT: %w", err)
 		}
-		cfg.IdleTimeout = d
+		cfg.BackstopTimeout = d
 	}
 
 	if quiet := os.Getenv("CLAUDE_NOTIFY_QUIET"); quiet != "" {
@@ -195,65 +118,10 @@ func loadFromEnv(cfg *Config) error {
 		}
 	}
 
-	if force := os.Getenv("CLAUDE_NOTIFY_FORCE"); force != "" {
-		switch force {
-		case "true", "1", "yes":
-			cfg.ForceNotify = true
-		case "false", "0", "no":
-			cfg.ForceNotify = false
-		default:
-			return fmt.Errorf("invalid CLAUDE_NOTIFY_FORCE value: %q (use true/false)", force)
-		}
-	}
-
-	if startup := os.Getenv("CLAUDE_NOTIFY_STARTUP"); startup != "" {
-		switch startup {
-		case "true", "1", "yes":
-			cfg.StartupNotify = true
-		case "false", "0", "no":
-			cfg.StartupNotify = false
-		default:
-			return fmt.Errorf("invalid CLAUDE_NOTIFY_STARTUP value: %q (use true/false)", startup)
-		}
-	}
-
-	if defaultArgs := os.Getenv("CLAUDE_NOTIFY_DEFAULT_ARGS"); defaultArgs != "" {
-		// Split by comma, trim spaces
-		args := strings.Split(defaultArgs, ",")
-		for i := range args {
-			args[i] = strings.TrimSpace(args[i])
-		}
-		// Filter out empty strings
-		filtered := make([]string, 0, len(args))
-		for _, arg := range args {
-			if arg != "" {
-				filtered = append(filtered, arg)
-			}
-		}
-		if len(filtered) > 0 {
-			cfg.DefaultClaudeArgs = filtered
-		}
-	}
-
 	if claudePath := os.Getenv("CLAUDE_NOTIFY_CLAUDE_PATH"); claudePath != "" {
 		cfg.ClaudePath = claudePath
 	}
 
-	return nil
-}
-
-// compilePatterns compiles all regex patterns
-func compilePatterns(cfg *Config) error {
-	for i := range cfg.Patterns {
-		pattern := &cfg.Patterns[i]
-		if pattern.Enabled && pattern.Regex != "" {
-			re, err := regexp.Compile(pattern.Regex)
-			if err != nil {
-				return fmt.Errorf("failed to compile pattern %q: %w", pattern.Name, err)
-			}
-			pattern.SetCompiledRegex(re)
-		}
-	}
 	return nil
 }
 
@@ -263,16 +131,8 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("ntfy_topic is required when not in quiet mode")
 	}
 
-	if cfg.RateLimit.MaxMessages < 0 {
-		return fmt.Errorf("rate_limit.max_messages must be non-negative")
-	}
-
-	if cfg.RateLimit.Window < 0 {
-		return fmt.Errorf("rate_limit.window must be non-negative")
-	}
-
-	if cfg.BatchWindow < 0 {
-		return fmt.Errorf("batch_window must be non-negative")
+	if cfg.BackstopTimeout < 0 {
+		return fmt.Errorf("backstop_timeout must be non-negative")
 	}
 
 	return nil

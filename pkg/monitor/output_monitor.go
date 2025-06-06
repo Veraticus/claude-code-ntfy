@@ -4,27 +4,22 @@ import (
 	"bytes"
 	"fmt"
 	"os"
-	"regexp"
 	"sync"
 	"time"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
 	"github.com/Veraticus/claude-code-ntfy/pkg/notification"
-	"github.com/Veraticus/claude-code-ntfy/pkg/status"
 )
 
-// OutputMonitor monitors output for patterns and triggers notifications
+// OutputMonitor monitors output and tracks activity
 type OutputMonitor struct {
-	config         *config.Config
-	patternMatcher PatternMatcher
-	idleDetector   interfaces.IdleDetector
-	notifier       notification.Notifier
+	config   *config.Config
+	notifier notification.Notifier
 
 	mu             sync.Mutex
 	lastOutputTime time.Time
 	lineBuffer     bytes.Buffer
-	startTime      time.Time
 
 	// Terminal sequence detection
 	sequenceDetector   interfaces.TerminalSequenceDetector
@@ -33,15 +28,12 @@ type OutputMonitor struct {
 }
 
 // NewOutputMonitor creates a new output monitor
-func NewOutputMonitor(cfg *config.Config, pm PatternMatcher, idle interfaces.IdleDetector, notifier notification.Notifier) *OutputMonitor {
+func NewOutputMonitor(cfg *config.Config, notifier notification.Notifier) *OutputMonitor {
 	now := time.Now()
 	om := &OutputMonitor{
 		config:           cfg,
-		patternMatcher:   pm,
-		idleDetector:     idle,
 		notifier:         notifier,
 		lastOutputTime:   now,
-		startTime:        now,
 		sequenceDetector: NewTerminalSequenceDetector(),
 		terminalState:    NewTerminalState(),
 	}
@@ -77,10 +69,15 @@ func (om *OutputMonitor) HandleData(data []byte) {
 	// Always update last output time when we receive data
 	om.lastOutputTime = time.Now()
 
-	// Add data to line buffer
+	// Mark activity for backstop timer
+	if marker, ok := om.notifier.(notification.ActivityMarker); ok {
+		marker.MarkActivity()
+	}
+
+	// Add data to line buffer for processing
 	om.lineBuffer.Write(data)
 
-	// Process complete lines
+	// Process complete lines for bell detection
 	buffer := om.lineBuffer.Bytes()
 	om.lineBuffer.Reset()
 
@@ -88,7 +85,7 @@ func (om *OutputMonitor) HandleData(data []byte) {
 	start := 0
 	for i := 0; i < len(buffer); i++ {
 		if buffer[i] == '\n' {
-			line := string(buffer[start:i])
+			line := buffer[start:i]
 			om.processLine(line)
 			start = i + 1
 		}
@@ -100,108 +97,18 @@ func (om *OutputMonitor) HandleData(data []byte) {
 	}
 }
 
-// processLine processes a single line of output
-func (om *OutputMonitor) processLine(line string) {
-	// Skip empty lines or lines that only contain ANSI sequences
-	trimmed := stripANSI(line)
-	if len(trimmed) > 0 {
-		// This is a real content line from Claude, mark activity
-		if marker, ok := om.notifier.(notification.ActivityMarker); ok {
-			marker.MarkActivity()
+// processLine checks for bell character
+func (om *OutputMonitor) processLine(line []byte) {
+	// Check for bell character
+	if bytes.Contains(line, []byte{0x07}) {
+		// Bell detected, disable backstop timer
+		if backstopSetter, ok := om.notifier.(interface{ SetBackstopSent(bool) }); ok {
+			backstopSetter.SetBackstopSent(true)
 			if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
-				fmt.Fprintf(os.Stderr, "claude-code-ntfy: Activity marked for line: %q\n", trimmed)
+				fmt.Fprintf(os.Stderr, "claude-code-ntfy: bell detected, disabling backstop timer\n")
 			}
 		}
 	}
-
-	// Skip if in quiet mode
-	if om.config.Quiet {
-		return
-	}
-
-	// Skip if we're still in the startup grace period
-	if om.config.StartupGracePeriod > 0 && time.Since(om.startTime) < om.config.StartupGracePeriod {
-		if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
-			fmt.Fprintf(os.Stderr, "claude-code-ntfy: skipping line during grace period: %q\n", line)
-		}
-		return
-	}
-
-	// Find matches in the line
-	matches := om.patternMatcher.Match(line)
-	if len(matches) == 0 {
-		return
-	}
-
-	// Check if we should notify
-	if om.shouldNotify() {
-		// Create notifications for each match
-		for _, match := range matches {
-			n := notification.Notification{
-				Title:   "Claude Code: " + match.PatternName,
-				Message: line,
-				Time:    time.Now(),
-				Pattern: match.PatternName,
-			}
-
-			// Send notification
-			if om.notifier != nil {
-				// Debug: log what's matching
-				if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
-					fmt.Fprintf(os.Stderr, "claude-code-ntfy: pattern '%s' matched in line: %q\n", match.PatternName, line)
-				}
-
-				if err := om.notifier.Send(n); err != nil {
-					// Log error but don't stop processing
-					// This ensures we continue monitoring even if notifications fail
-					fmt.Fprintf(os.Stderr, "claude-code-ntfy: notification error: %v\n", err)
-				}
-
-				// If this is a bell notification, mark backstop as sent
-				// since Claude is explicitly asking for attention
-				if match.PatternName == "bell" {
-					if backstopSetter, ok := om.notifier.(interface{ SetBackstopSent(bool) }); ok {
-						backstopSetter.SetBackstopSent(true)
-						if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
-							fmt.Fprintf(os.Stderr, "claude-code-ntfy: bell detected, disabling backstop notification\n")
-						}
-					}
-				}
-			}
-		}
-	}
-}
-
-// shouldNotify determines if a notification should be sent
-func (om *OutputMonitor) shouldNotify() bool {
-	// Force notify overrides all checks
-	if om.config.ForceNotify {
-		return true
-	}
-
-	// Check if terminal is focused (if focus reporting is enabled)
-	if om.terminalState.IsFocusReportingEnabled() && om.terminalState.IsFocused() {
-		// Terminal is focused, don't notify
-		return false
-	}
-
-	// Check if user is idle
-	if om.idleDetector != nil {
-		idle, err := om.idleDetector.IsUserIdle(om.config.IdleTimeout)
-		if err == nil {
-			// Update idle state in status indicator if we're using it as screen event handler
-			if indicator, ok := om.screenEventHandler.(*status.Indicator); ok {
-				indicator.SetIdleState(idle)
-			}
-
-			if !idle {
-				// User is active, don't notify
-				return false
-			}
-		}
-	}
-
-	return true
 }
 
 // Flush processes any remaining data in the buffer
@@ -211,7 +118,7 @@ func (om *OutputMonitor) Flush() {
 
 	// Process any remaining line
 	if om.lineBuffer.Len() > 0 {
-		line := om.lineBuffer.String()
+		line := om.lineBuffer.Bytes()
 		om.processLine(line)
 		om.lineBuffer.Reset()
 	}
@@ -219,11 +126,7 @@ func (om *OutputMonitor) Flush() {
 
 // HandleLine implements the OutputHandler interface
 func (om *OutputMonitor) HandleLine(line string) {
-	om.mu.Lock()
-	om.lastOutputTime = time.Now()
-	om.mu.Unlock()
-
-	om.processLine(line)
+	om.HandleData([]byte(line + "\n"))
 }
 
 // GetLastOutputTime returns the last time output was received
@@ -274,13 +177,6 @@ func (om *OutputMonitor) SetFocusReportingEnabled(enabled bool) {
 	om.terminalState.SetFocusReportingEnabled(enabled)
 }
 
-// ResetStartTime resets the start time to now, which extends the grace period
-func (om *OutputMonitor) ResetStartTime() {
-	om.mu.Lock()
-	defer om.mu.Unlock()
-	om.startTime = time.Now()
-}
-
 // LastOutputTime returns the time of the last output
 func (om *OutputMonitor) LastOutputTime() time.Time {
 	om.mu.Lock()
@@ -294,15 +190,4 @@ func (om *OutputMonitor) GetTerminalTitle() string {
 		return om.terminalState.GetTitle()
 	}
 	return ""
-}
-
-// stripANSI removes ANSI escape sequences from a string but preserves bell character
-func stripANSI(s string) string {
-	// This regex matches ANSI escape sequences
-	// CSI sequences: ESC [ ... letter
-	// OSC sequences: ESC ] ... (terminated by BEL or ST)
-	// Other escape sequences
-	// Note: We intentionally preserve \x07 (bell) when it appears alone
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[PX^_].*?\x1b\\|\x1b[78DEHMN=><]`)
-	return ansiRegex.ReplaceAllString(s, "")
 }

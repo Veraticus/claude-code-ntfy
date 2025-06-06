@@ -162,7 +162,7 @@ func (p *PTYManager) monitorTerminalSize() {
 }
 
 // CopyIO handles copying between PTY and standard streams
-func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHandler func([]byte)) error {
+func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHandler func([]byte), inputHandler func()) error {
 	p.mu.Lock()
 	if p.pty == nil {
 		p.mu.Unlock()
@@ -197,8 +197,20 @@ func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHan
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		if _, err := io.Copy(p.pty, stdin); err != nil {
-			errChan <- fmt.Errorf("stdin copy error: %w", err)
+		if inputHandler != nil {
+			// Use an inputReader to detect stdin activity
+			reader := &inputReader{
+				reader:  stdin,
+				handler: inputHandler,
+			}
+			if _, err := io.Copy(p.pty, reader); err != nil {
+				errChan <- fmt.Errorf("stdin copy error: %w", err)
+			}
+		} else {
+			// Direct copy without handling
+			if _, err := io.Copy(p.pty, stdin); err != nil {
+				errChan <- fmt.Errorf("stdin copy error: %w", err)
+			}
 		}
 	}()
 
@@ -246,6 +258,20 @@ func (r *outputReader) Read(p []byte) (n int, err error) {
 	n, err = r.reader.Read(p)
 	if n > 0 && r.handler != nil {
 		r.handler(p[:n])
+	}
+	return n, err
+}
+
+// inputReader wraps a reader and calls a handler when input is detected
+type inputReader struct {
+	reader  io.Reader
+	handler func()
+}
+
+func (r *inputReader) Read(p []byte) (n int, err error) {
+	n, err = r.reader.Read(p)
+	if n > 0 && r.handler != nil {
+		r.handler()
 	}
 	return n, err
 }
