@@ -63,9 +63,9 @@ func (m *Manager) Send(notification Notification) error {
 	if m.statusReporter != nil {
 		m.statusReporter.ReportSending()
 	}
-	
+
 	err := m.notifier.Send(notification)
-	
+
 	if m.statusReporter != nil {
 		if err != nil {
 			m.statusReporter.ReportFailure()
@@ -73,7 +73,7 @@ func (m *Manager) Send(notification Notification) error {
 			m.statusReporter.ReportSuccess()
 		}
 	}
-	
+
 	return err
 }
 
@@ -96,9 +96,9 @@ func (m *Manager) sendBatch(notifications []Notification) {
 	if m.statusReporter != nil {
 		m.statusReporter.ReportSending()
 	}
-	
+
 	err := m.notifier.Send(combined)
-	
+
 	if m.statusReporter != nil {
 		if err != nil {
 			m.statusReporter.ReportFailure()
@@ -106,7 +106,7 @@ func (m *Manager) sendBatch(notifications []Notification) {
 			m.statusReporter.ReportSuccess()
 		}
 	}
-	
+
 	// Errors are logged at the notifier level - notifications are best effort
 	_ = err
 }

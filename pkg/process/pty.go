@@ -14,11 +14,12 @@ import (
 
 // PTYManager handles PTY-based process execution
 type PTYManager struct {
-	cmd      *exec.Cmd
-	pty      *os.File
-	mu       sync.Mutex
-	stopChan chan struct{}
-	wg       sync.WaitGroup
+	cmd         *exec.Cmd
+	pty         *os.File
+	mu          sync.Mutex
+	stopChan    chan struct{}
+	wg          sync.WaitGroup
+	restoreFunc func()
 }
 
 // Ensure PTYManager implements PTY
@@ -111,6 +112,20 @@ func (p *PTYManager) Process() *os.Process {
 	return p.cmd.Process
 }
 
+// Stop gracefully stops the PTY manager and restores terminal state
+func (p *PTYManager) Stop() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	
+	// Restore terminal if needed
+	if p.restoreFunc != nil {
+		p.restoreFunc()
+		p.restoreFunc = nil
+	}
+	
+	return nil
+}
+
 // copyTerminalSize copies the terminal size from stdin to the PTY
 func (p *PTYManager) copyTerminalSize() error {
 	size, err := pty.GetsizeFull(os.Stdin)
@@ -154,6 +169,23 @@ func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHan
 		return fmt.Errorf("PTY not initialized")
 	}
 	p.mu.Unlock()
+
+	// Store the restore function so we can call it from Stop()
+	if file, ok := stdin.(*os.File); ok {
+		if restore, err := setRawMode(int(file.Fd())); err == nil {
+			p.mu.Lock()
+			p.restoreFunc = restore
+			p.mu.Unlock()
+			defer func() {
+				p.mu.Lock()
+				if p.restoreFunc != nil {
+					p.restoreFunc()
+					p.restoreFunc = nil
+				}
+				p.mu.Unlock()
+			}()
+		}
+	}
 
 	// Use a wait group to track copy operations
 	var wg sync.WaitGroup

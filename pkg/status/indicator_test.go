@@ -11,15 +11,15 @@ import (
 func TestNewIndicator(t *testing.T) {
 	buf := &bytes.Buffer{}
 	indicator := NewIndicator(buf, true)
-	
+
 	if indicator.status != StatusIdle {
 		t.Errorf("expected initial status to be StatusIdle, got %v", indicator.status)
 	}
-	
+
 	if indicator.writer != buf {
 		t.Errorf("expected writer to be set")
 	}
-	
+
 	if !indicator.enabled {
 		t.Errorf("expected indicator to be enabled")
 	}
@@ -63,16 +63,16 @@ func TestIndicatorSetStatus(t *testing.T) {
 			enabled:        false,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			buf := &bytes.Buffer{}
 			indicator := NewIndicator(buf, tt.enabled)
-			
+
 			indicator.SetStatus(tt.status)
-			
+
 			output := buf.String()
-			
+
 			// Check if expected output is in the result (ignoring escape sequences for positioning)
 			if tt.expectedOutput != "" {
 				if !strings.Contains(output, tt.expectedOutput) {
@@ -92,73 +92,52 @@ func TestIndicatorSetStatus(t *testing.T) {
 	}
 }
 
-func TestIndicatorSuccessStatusWithTime(t *testing.T) {
+func TestIndicatorSuccessStatusPersistence(t *testing.T) {
 	buf := &bytes.Buffer{}
 	indicator := NewIndicator(buf, true)
-	
+
 	// Set success status
 	indicator.SetStatus(StatusSuccess)
-	
-	// Should show green checkmark initially
+
+	// Should show green checkmark
 	output := buf.String()
 	if !strings.Contains(output, "✓ ntfy") {
 		t.Errorf("expected output to contain green checkmark, got %q", output)
 	}
-	
-	// Manually set lastSent to 10 seconds ago
+
+	// With the new behavior, status persists (no auto-clear)
+	// The status will be cleared by screen clear detection and redraw
+
+	// Check that status persists
 	indicator.mu.Lock()
-	indicator.lastSent = time.Now().Add(-10 * time.Second)
+	currentStatus := indicator.status
 	indicator.mu.Unlock()
-	
-	// Clear buffer and redraw
-	buf.Reset()
-	indicator.mu.Lock()
-	_ = indicator.draw()
-	indicator.mu.Unlock()
-	
-	output = buf.String()
-	if !strings.Contains(output, "✓ ntfy (10s)") {
-		t.Errorf("expected output to contain time indicator, got %q", output)
-	}
-	
-	// Set to 35 seconds ago
-	indicator.mu.Lock()
-	indicator.lastSent = time.Now().Add(-35 * time.Second)
-	indicator.mu.Unlock()
-	
-	// Clear buffer and redraw
-	buf.Reset()
-	indicator.mu.Lock()
-	_ = indicator.draw()
-	indicator.mu.Unlock()
-	
-	output = buf.String()
-	// Should not contain ntfy text after 30 seconds
-	if strings.Contains(output, "ntfy") {
-		t.Errorf("expected no ntfy text after 30 seconds, got %q", output)
+
+	if currentStatus != StatusSuccess {
+		t.Errorf("expected status to remain as success, got %v", currentStatus)
 	}
 }
 
 func TestIndicatorClear(t *testing.T) {
 	buf := &bytes.Buffer{}
 	indicator := NewIndicator(buf, true)
-	
+
 	// Set a status
 	indicator.SetStatus(StatusSuccess)
-	
+
 	// Clear the indicator
 	buf.Reset()
 	err := indicator.Clear()
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	
+
 	output := buf.String()
 	// Should contain escape sequences but no visible text
 	if strings.Contains(output, "ntfy") {
 		t.Errorf("expected cleared output to not contain ntfy text, got %q", output)
 	}
-	
+
 	// Should contain cursor positioning sequences
 	if !strings.Contains(output, "\033[") {
 		t.Errorf("expected escape sequences in output, got %q", output)
@@ -171,39 +150,39 @@ func TestIndicatorAutoRefresh(t *testing.T) {
 		mu  sync.Mutex
 		buf bytes.Buffer
 	}
-	
+
 	sb := &safeBuffer{}
-	
+
 	// Create a writer that locks before writing
 	writer := writerFunc(func(p []byte) (n int, err error) {
 		sb.mu.Lock()
 		defer sb.mu.Unlock()
 		return sb.buf.Write(p)
 	})
-	
+
 	indicator := NewIndicator(writer, true)
-	
+
 	// Set success status
 	indicator.SetStatus(StatusSuccess)
-	
+
 	// Start auto refresh
 	stopChan := make(chan struct{})
 	indicator.StartAutoRefresh(stopChan)
-	
+
 	// Wait a bit for refresh
 	time.Sleep(1100 * time.Millisecond)
-	
+
 	// Stop refresh
 	close(stopChan)
-	
+
 	// Give it time to clean up
 	time.Sleep(100 * time.Millisecond)
-	
+
 	// Get output safely
 	sb.mu.Lock()
 	output := sb.buf.String()
 	sb.mu.Unlock()
-	
+
 	// Count escape sequences for cursor save (at least 2 - initial draw and one refresh)
 	saveCount := strings.Count(output, "\033[s")
 	if saveCount < 2 {
@@ -216,4 +195,63 @@ type writerFunc func([]byte) (int, error)
 
 func (f writerFunc) Write(p []byte) (int, error) {
 	return f(p)
+}
+
+func TestIndicatorHandleScreenClear(t *testing.T) {
+	tests := []struct {
+		name         string
+		status       Status
+		enabled      bool
+		expectRedraw bool
+	}{
+		{
+			name:         "redraws when status is active",
+			status:       StatusSuccess,
+			enabled:      true,
+			expectRedraw: true,
+		},
+		{
+			name:         "no redraw when status is idle",
+			status:       StatusIdle,
+			enabled:      true,
+			expectRedraw: false,
+		},
+		{
+			name:         "no redraw when disabled",
+			status:       StatusSuccess,
+			enabled:      false,
+			expectRedraw: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			buf := &bytes.Buffer{}
+			indicator := NewIndicator(buf, tt.enabled)
+
+			// Set initial status
+			indicator.SetStatus(tt.status)
+			buf.Reset() // Clear buffer after initial draw
+
+			// Call HandleScreenClear
+			indicator.HandleScreenClear()
+
+			output := buf.String()
+			hasOutput := len(output) > 0
+
+			if tt.expectRedraw && !hasOutput {
+				t.Error("expected redraw output but got none")
+			}
+			if !tt.expectRedraw && hasOutput {
+				t.Errorf("expected no output but got: %q", output)
+			}
+
+			// If we expect redraw, verify it contains status text
+			if tt.expectRedraw && tt.status != StatusIdle {
+				if !strings.Contains(output, "ntfy") {
+					t.Errorf("expected output to contain status text, got: %q", output)
+				}
+			}
+		})
+	}
 }

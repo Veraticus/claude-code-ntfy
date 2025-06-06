@@ -18,11 +18,11 @@ const (
 func main() {
 	// Parse command line flags
 	var (
-		configPath     string
-		quiet          bool
-		forceNotify    bool
-		startupNotify  bool
-		help           bool
+		configPath    string
+		quiet         bool
+		forceNotify   bool
+		startupNotify bool
+		help          bool
 	)
 
 	flag.StringVar(&configPath, "config", "", "Path to config file")
@@ -32,7 +32,8 @@ func main() {
 	flag.BoolVar(&help, "help", false, "Show help message")
 	flag.Parse()
 
-	if help {
+	// Only show our help if no args were provided with --help
+	if help && len(flag.Args()) == 0 {
 		printUsage()
 		os.Exit(0)
 	}
@@ -62,12 +63,21 @@ func main() {
 	}
 
 	// Get Claude command and args
-	args := flag.Args()
+	userArgs := flag.Args()
 	command := defaultClaudeCommand
 
-	// If no args provided, just run claude
-	if len(args) == 0 {
-		args = []string{}
+	// Merge default args with user args
+	var args []string
+	if len(cfg.DefaultClaudeArgs) > 0 {
+		args = append(args, cfg.DefaultClaudeArgs...)
+	}
+	args = append(args, userArgs...)
+
+	// Debug: Check if claude command exists
+	if _, err := exec.LookPath(command); err != nil {
+		fmt.Fprintf(os.Stderr, "Error: claude command not found in PATH\n")
+		fmt.Fprintf(os.Stderr, "Make sure 'claude' is installed and in your PATH\n")
+		os.Exit(1)
 	}
 
 	// Create dependencies
@@ -85,6 +95,14 @@ func main() {
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, os.Interrupt, syscall.SIGTERM)
 
+	// Ensure terminal restoration on panic
+	defer func() {
+		if r := recover(); r != nil {
+			_ = app.Stop() // Best effort terminal restoration
+			panic(r)       // Re-panic
+		}
+	}()
+
 	go func() {
 		<-sigChan
 		// Attempt graceful shutdown
@@ -94,6 +112,12 @@ func main() {
 		// Exit with standard interrupt code
 		os.Exit(130)
 	}()
+
+	// Debug output if verbose
+	if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "1" {
+		fmt.Fprintf(os.Stderr, "claude-code-ntfy: Starting claude with args: %v\n", args)
+		fmt.Fprintf(os.Stderr, "claude-code-ntfy: Config: quiet=%v, topic=%q\n", cfg.Quiet, cfg.NtfyTopic)
+	}
 
 	// Run the application
 	if err := app.Run(command, args); err != nil {
@@ -123,5 +147,6 @@ func printUsage() {
 	fmt.Println("  CLAUDE_NOTIFY_QUIET       Disable notifications (true/false)")
 	fmt.Println("  CLAUDE_NOTIFY_FORCE       Force notifications (true/false)")
 	fmt.Println("  CLAUDE_NOTIFY_STARTUP     Send startup notification (true/false)")
+	fmt.Println("  CLAUDE_NOTIFY_DEFAULT_ARGS  Default Claude args (comma-separated)")
 	fmt.Println("  CLAUDE_NOTIFY_CONFIG      Path to config file")
 }

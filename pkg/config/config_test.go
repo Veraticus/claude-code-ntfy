@@ -38,8 +38,8 @@ func TestDefaultConfig(t *testing.T) {
 	}{
 		{"bell", `\x07`},
 		{"question", `\?\s*$`},
-		{"error", `(?i)(error|failed|exception)`},
-		{"completion", `(?i)(done|finished|completed)`},
+		{"error", `(?i)(\berror:|\bfailed:|\bexception:|✗|❌)\s`},
+		{"completion", `(?i)(✓|✅|task completed|build succeeded|all tests pass)`},
 	}
 
 	for i, expected := range expectedPatterns {
@@ -68,6 +68,7 @@ func TestLoadFromEnv(t *testing.T) {
 	origQuiet := os.Getenv("CLAUDE_NOTIFY_QUIET")
 	origForce := os.Getenv("CLAUDE_NOTIFY_FORCE")
 	origStartup := os.Getenv("CLAUDE_NOTIFY_STARTUP")
+	origDefaultArgs := os.Getenv("CLAUDE_NOTIFY_DEFAULT_ARGS")
 	defer func() {
 		_ = os.Setenv("CLAUDE_NOTIFY_TOPIC", origTopic)
 		_ = os.Setenv("CLAUDE_NOTIFY_SERVER", origServer)
@@ -75,6 +76,7 @@ func TestLoadFromEnv(t *testing.T) {
 		_ = os.Setenv("CLAUDE_NOTIFY_QUIET", origQuiet)
 		_ = os.Setenv("CLAUDE_NOTIFY_FORCE", origForce)
 		_ = os.Setenv("CLAUDE_NOTIFY_STARTUP", origStartup)
+		_ = os.Setenv("CLAUDE_NOTIFY_DEFAULT_ARGS", origDefaultArgs)
 	}()
 
 	tests := []struct {
@@ -143,11 +145,24 @@ func TestLoadFromEnv(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "empty default args",
+			envVars: map[string]string{
+				"CLAUDE_NOTIFY_TOPIC":        "test-topic",
+				"CLAUDE_NOTIFY_DEFAULT_ARGS": ",,,",
+			},
+			checkFunc: func(t *testing.T, cfg *Config) {
+				if len(cfg.DefaultClaudeArgs) != 0 {
+					t.Errorf("expected no default args for empty string, got %v", cfg.DefaultClaudeArgs)
+				}
+			},
+		},
+		{
 			name: "boolean variations",
 			envVars: map[string]string{
-				"CLAUDE_NOTIFY_QUIET":   "yes",
-				"CLAUDE_NOTIFY_FORCE":   "1",
-				"CLAUDE_NOTIFY_STARTUP": "no",
+				"CLAUDE_NOTIFY_QUIET":        "yes",
+				"CLAUDE_NOTIFY_FORCE":        "1",
+				"CLAUDE_NOTIFY_STARTUP":      "no",
+				"CLAUDE_NOTIFY_DEFAULT_ARGS": "--model,claude-3-opus,--verbose",
 			},
 			checkFunc: func(t *testing.T, cfg *Config) {
 				if !cfg.Quiet {
@@ -158,6 +173,16 @@ func TestLoadFromEnv(t *testing.T) {
 				}
 				if cfg.StartupNotify {
 					t.Error("expected StartupNotify to be false for 'no'")
+				}
+				if len(cfg.DefaultClaudeArgs) != 3 {
+					t.Errorf("expected 3 default args, got %d", len(cfg.DefaultClaudeArgs))
+				} else {
+					expected := []string{"--model", "claude-3-opus", "--verbose"}
+					for i, arg := range expected {
+						if cfg.DefaultClaudeArgs[i] != arg {
+							t.Errorf("expected arg[%d] to be %q, got %q", i, arg, cfg.DefaultClaudeArgs[i])
+						}
+					}
 				}
 			},
 		},
@@ -172,11 +197,17 @@ func TestLoadFromEnv(t *testing.T) {
 			_ = os.Unsetenv("CLAUDE_NOTIFY_QUIET")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_FORCE")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_STARTUP")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_DEFAULT_ARGS")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
 
 			// Set test env vars
 			for k, v := range tt.envVars {
 				_ = os.Setenv(k, v)
+			}
+
+			// Set a non-existent config path to prevent loading user's config
+			if _, hasConfig := tt.envVars["CLAUDE_NOTIFY_CONFIG"]; !hasConfig {
+				_ = os.Setenv("CLAUDE_NOTIFY_CONFIG", "/tmp/non-existent-test-config.yaml")
 			}
 
 			// Load config
@@ -221,6 +252,9 @@ idle_timeout: "10m"
 quiet: true
 force_notify: false
 startup_notify: true
+default_claude_args:
+  - "--model"
+  - "claude-3-opus"
 patterns:
   - name: "custom"
     regex: "CUSTOM"
@@ -240,6 +274,9 @@ batch_window: "10s"
 				}
 				if !cfg.StartupNotify {
 					t.Errorf("expected StartupNotify to be true")
+				}
+				if len(cfg.DefaultClaudeArgs) != 2 || cfg.DefaultClaudeArgs[0] != "--model" || cfg.DefaultClaudeArgs[1] != "claude-3-opus" {
+					t.Errorf("expected default args [--model claude-3-opus], got %v", cfg.DefaultClaudeArgs)
 				}
 				if len(cfg.Patterns) != 1 {
 					t.Errorf("expected 1 pattern but got %d", len(cfg.Patterns))
@@ -531,13 +568,16 @@ func TestCompiledPatternMatching(t *testing.T) {
 		{"bell", "no bell here", false},
 		{"question", "Is this a question?", true},
 		{"question", "This is a statement.", false},
-		{"error", "An error occurred", true},
-		{"error", "Failed to process", true},
-		{"error", "Exception thrown", true},
+		{"error", "error: file not found ", true},
+		{"error", "Failed: build error ", true},
+		{"error", "Exception: null pointer ", true},
 		{"error", "All is well", false},
-		{"completion", "Task done", true},
-		{"completion", "Process finished", true},
-		{"completion", "Job completed", true},
+		{"error", "✗ Test failed ", true},
+		{"error", "❌ Build failed ", true},
+		{"completion", "✓ Done", true},
+		{"completion", "✅ All tests pass", true},
+		{"completion", "task completed successfully", true},
+		{"completion", "build succeeded", true},
 		{"completion", "Still working", false},
 	}
 

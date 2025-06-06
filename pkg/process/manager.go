@@ -83,6 +83,9 @@ func (m *Manager) Wait() error {
 	}
 	m.mu.Unlock()
 
+	// Ensure terminal is restored
+	_ = m.ptyManager.Stop()
+
 	// Signal that we're done
 	close(m.done)
 
@@ -148,12 +151,17 @@ func (m *Manager) Stop() error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	if m.ptyManager != nil && m.ptyManager.Process() != nil {
-		// Send SIGTERM first for graceful shutdown
-		if err := m.ptyManager.Process().Signal(syscall.SIGTERM); err != nil {
-			// If SIGTERM fails, force kill
-			if err != os.ErrProcessDone {
-				return m.ptyManager.Process().Kill()
+	if m.ptyManager != nil {
+		// Ensure terminal is restored
+		_ = m.ptyManager.Stop()
+		
+		if m.ptyManager.Process() != nil {
+			// Send SIGTERM first for graceful shutdown
+			if err := m.ptyManager.Process().Signal(syscall.SIGTERM); err != nil {
+				// If SIGTERM fails, force kill
+				if err != os.ErrProcessDone {
+					return m.ptyManager.Process().Kill()
+				}
 			}
 		}
 	}

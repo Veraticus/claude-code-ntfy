@@ -3,9 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
-	"syscall"
 	"time"
-	"unsafe"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/idle"
@@ -42,27 +40,32 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 	deps.IdleDetector = idle.NewIdleDetector()
 
 	// Create status indicator (only enabled if we have a terminal and notifications are enabled)
+	// The indicator will only flash briefly when notifications are sent
 	isTerminal := isatty(os.Stderr.Fd())
 	statusEnabled := isTerminal && !cfg.Quiet && cfg.NtfyTopic != ""
 	deps.StatusIndicator = status.NewIndicator(os.Stderr, statusEnabled)
 	deps.StatusReporter = status.NewReporter(deps.StatusIndicator)
-	
-	// Start auto-refresh for status indicator
-	if statusEnabled {
-		deps.StatusIndicator.StartAutoRefresh(deps.stopChan)
-	}
+
+	// Start auto-refresh to keep the indicator visible despite Claude's screen clears
+	deps.StatusIndicator.StartAutoRefresh(deps.stopChan)
 
 	// Create notification components
 	deps.Notifier = notification.NewNtfyClient(cfg.NtfyServer, cfg.NtfyTopic)
 	deps.RateLimiter = notification.NewTokenBucketRateLimiter(cfg.RateLimit.MaxMessages, cfg.RateLimit.Window)
 	deps.NotificationManager = notification.NewManager(cfg, deps.Notifier, deps.RateLimiter)
-	
+
 	// Connect status reporter to notification manager
 	deps.NotificationManager.SetStatusReporter(deps.StatusReporter)
 
 	// Create pattern matcher and output monitor
 	deps.PatternMatcher = monitor.NewSimplePatternMatcher(cfg.Patterns)
-	deps.OutputMonitor = monitor.NewOutputMonitor(cfg, deps.PatternMatcher, deps.IdleDetector, deps.NotificationManager)
+	outputMonitor := monitor.NewOutputMonitor(cfg, deps.PatternMatcher, deps.IdleDetector, deps.NotificationManager)
+	deps.OutputMonitor = outputMonitor
+
+	// Connect status indicator to output monitor for screen clear detection
+	if statusEnabled {
+		outputMonitor.SetScreenEventHandler(deps.StatusIndicator)
+	}
 
 	// Create process manager
 	deps.ProcessManager = process.NewManager(cfg, deps.OutputMonitor)
@@ -82,12 +85,12 @@ func (d *Dependencies) Close() {
 		}
 		d.stopChan = nil
 	}
-	
+
 	// Clean up status indicator
 	if d.StatusIndicator != nil {
 		_ = d.StatusIndicator.Clear() // Best effort
 	}
-	
+
 	if d.NotificationManager != nil {
 		_ = d.NotificationManager.Close()
 	}
@@ -134,11 +137,4 @@ func (a *Application) Stop() error {
 // ExitCode returns the exit code of the wrapped process
 func (a *Application) ExitCode() int {
 	return a.deps.ProcessManager.ExitCode()
-}
-
-// isatty returns true if the given file descriptor is a terminal
-func isatty(fd uintptr) bool {
-	var termios syscall.Termios
-	_, _, err := syscall.Syscall6(syscall.SYS_IOCTL, fd, syscall.TCGETS, uintptr(unsafe.Pointer(&termios)), 0, 0, 0)
-	return err == 0
 }

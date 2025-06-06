@@ -22,21 +22,41 @@ type OutputMonitor struct {
 	mu             sync.Mutex
 	lastOutputTime time.Time
 	lineBuffer     bytes.Buffer
+	startTime      time.Time
+
+	// Terminal sequence detection
+	sequenceDetector   interfaces.TerminalSequenceDetector
+	screenEventHandler interfaces.ScreenEventHandler
 }
 
 // NewOutputMonitor creates a new output monitor
 func NewOutputMonitor(cfg *config.Config, pm PatternMatcher, idle interfaces.IdleDetector, notifier notification.Notifier) *OutputMonitor {
+	now := time.Now()
 	return &OutputMonitor{
-		config:         cfg,
-		patternMatcher: pm,
-		idleDetector:   idle,
-		notifier:       notifier,
-		lastOutputTime: time.Now(),
+		config:           cfg,
+		patternMatcher:   pm,
+		idleDetector:     idle,
+		notifier:         notifier,
+		lastOutputTime:   now,
+		startTime:        now,
+		sequenceDetector: NewTerminalSequenceDetector(),
 	}
+}
+
+// SetScreenEventHandler sets the handler for screen events
+func (om *OutputMonitor) SetScreenEventHandler(handler interfaces.ScreenEventHandler) {
+	om.mu.Lock()
+	defer om.mu.Unlock()
+	om.screenEventHandler = handler
 }
 
 // HandleData processes raw output data
 func (om *OutputMonitor) HandleData(data []byte) {
+	// Detect terminal sequences before locking (non-blocking operation)
+	if om.sequenceDetector != nil && om.screenEventHandler != nil {
+		om.sequenceDetector.DetectSequences(data, om.screenEventHandler)
+	}
+
 	om.mu.Lock()
 	defer om.mu.Unlock()
 
@@ -73,6 +93,14 @@ func (om *OutputMonitor) processLine(line string) {
 		return
 	}
 
+	// Skip if we're still in the startup grace period
+	if om.config.StartupGracePeriod > 0 && time.Since(om.startTime) < om.config.StartupGracePeriod {
+		if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+			fmt.Fprintf(os.Stderr, "claude-code-ntfy: skipping line during grace period: %q\n", line)
+		}
+		return
+	}
+
 	// Find matches in the line
 	matches := om.patternMatcher.Match(line)
 	if len(matches) == 0 {
@@ -92,6 +120,11 @@ func (om *OutputMonitor) processLine(line string) {
 
 			// Send notification
 			if om.notifier != nil {
+				// Debug: log what's matching
+				if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+					fmt.Fprintf(os.Stderr, "claude-code-ntfy: pattern '%s' matched in line: %q\n", match.PatternName, line)
+				}
+				
 				if err := om.notifier.Send(n); err != nil {
 					// Log error but don't stop processing
 					// This ensures we continue monitoring even if notifications fail

@@ -40,3 +40,15 @@ type StatusReporter interface {
 	ReportSuccess()
 	ReportFailure()
 }
+
+// ScreenEventHandler handles terminal screen events.
+type ScreenEventHandler interface {
+	// HandleScreenClear is called when a screen clear sequence is detected
+	HandleScreenClear()
+}
+
+// TerminalSequenceDetector detects terminal escape sequences in output.
+type TerminalSequenceDetector interface {
+	// DetectSequences analyzes data for terminal sequences and calls appropriate handlers
+	DetectSequences(data []byte, handler ScreenEventHandler)
+}

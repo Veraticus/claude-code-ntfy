@@ -9,6 +9,7 @@ import (
 type PTY interface {
 	Start(command string, args []string, env []string) error
 	Wait() error
+	Stop() error
 	ProcessState() *os.ProcessState
 	Process() *os.Process
 	GetPTY() *os.File

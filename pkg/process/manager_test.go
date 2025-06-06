@@ -69,6 +69,10 @@ func (m *MockPTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, handl
 	return nil
 }
 
+func (m *MockPTYManager) Stop() error {
+	return nil
+}
+
 // MockOutputHandler is a mock implementation of OutputHandler
 type MockOutputHandler struct {
 	lines []string

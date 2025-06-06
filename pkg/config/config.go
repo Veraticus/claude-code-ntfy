@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -18,9 +19,11 @@ type Config struct {
 	IdleTimeout time.Duration `yaml:"idle_timeout" env:"CLAUDE_NOTIFY_IDLE_TIMEOUT"`
 
 	// Behavior flags
-	Quiet            bool `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
-	ForceNotify      bool `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
-	StartupNotify    bool `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
+	Quiet             bool          `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
+	ForceNotify       bool          `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
+	StartupNotify     bool          `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
+	StartupGracePeriod time.Duration `yaml:"startup_grace_period" env:"CLAUDE_NOTIFY_STARTUP_GRACE"`
+	DefaultClaudeArgs []string      `yaml:"default_claude_args"`
 
 	// Pattern configuration
 	Patterns []Pattern `yaml:"patterns"`
@@ -62,6 +65,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		NtfyServer:  "https://ntfy.sh",
 		IdleTimeout: 2 * time.Minute,
+		StartupGracePeriod: 3 * time.Second,
 		Patterns: []Pattern{
 			{
 				Name:    "bell",
@@ -75,12 +79,12 @@ func DefaultConfig() *Config {
 			},
 			{
 				Name:    "error",
-				Regex:   `(?i)(error|failed|exception)`,
+				Regex:   `(?i)(\berror:|\bfailed:|\bexception:|✗|❌)\s`,
 				Enabled: true,
 			},
 			{
 				Name:    "completion",
-				Regex:   `(?i)(done|finished|completed)`,
+				Regex:   `(?i)(✓|✅|task completed|build succeeded|all tests pass)`,
 				Enabled: true,
 			},
 		},
@@ -201,6 +205,24 @@ func loadFromEnv(cfg *Config) error {
 			cfg.StartupNotify = false
 		default:
 			return fmt.Errorf("invalid CLAUDE_NOTIFY_STARTUP value: %q (use true/false)", startup)
+		}
+	}
+
+	if defaultArgs := os.Getenv("CLAUDE_NOTIFY_DEFAULT_ARGS"); defaultArgs != "" {
+		// Split by comma, trim spaces
+		args := strings.Split(defaultArgs, ",")
+		for i := range args {
+			args[i] = strings.TrimSpace(args[i])
+		}
+		// Filter out empty strings
+		filtered := make([]string, 0, len(args))
+		for _, arg := range args {
+			if arg != "" {
+				filtered = append(filtered, arg)
+			}
+		}
+		if len(filtered) > 0 {
+			cfg.DefaultClaudeArgs = filtered
 		}
 	}
 

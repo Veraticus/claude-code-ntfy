@@ -210,6 +210,95 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 	}
 }
 
+// mockScreenEventHandler tracks screen clear events for testing
+type mockScreenEventHandlerOM struct {
+	mu               sync.Mutex
+	screenClearCount int
+}
+
+func (m *mockScreenEventHandlerOM) HandleScreenClear() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.screenClearCount++
+}
+
+func TestOutputMonitorScreenEventHandling(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          []byte
+		expectedClears int
+	}{
+		{
+			name:           "screen clear sequence triggers handler",
+			input:          []byte("text\033[2Jmore text"),
+			expectedClears: 1,
+		},
+		{
+			name:           "multiple clear sequences",
+			input:          []byte("\033[2J\033[3J\033[H"),
+			expectedClears: 1, // Only triggers once per batch
+		},
+		{
+			name:           "no clear sequences",
+			input:          []byte("normal output\nwith newlines\n"),
+			expectedClears: 0,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				Patterns: []config.Pattern{{Regex: "test", Name: "test"}},
+			}
+
+			matcher := &MockPatternMatcher{}
+			idleDetector := &MockIdleDetector{isIdle: true}
+			notifier := &MockNotifier{}
+
+			monitor := NewOutputMonitor(cfg, matcher, idleDetector, notifier)
+
+			// Set up screen event handler
+			handler := &mockScreenEventHandlerOM{}
+			monitor.SetScreenEventHandler(handler)
+
+			// Process the input
+			monitor.HandleData(tt.input)
+
+			// Check screen clear count
+			handler.mu.Lock()
+			clearCount := handler.screenClearCount
+			handler.mu.Unlock()
+
+			if clearCount != tt.expectedClears {
+				t.Errorf("expected %d screen clears, got %d", tt.expectedClears, clearCount)
+			}
+		})
+	}
+}
+
+func TestOutputMonitorSetScreenEventHandler(t *testing.T) {
+	cfg := &config.Config{}
+	monitor := NewOutputMonitor(cfg, nil, nil, nil)
+
+	// Initially no handler
+	if monitor.screenEventHandler != nil {
+		t.Error("expected nil screen event handler initially")
+	}
+
+	// Set handler
+	handler := &mockScreenEventHandlerOM{}
+	monitor.SetScreenEventHandler(handler)
+
+	// Verify it was set
+	monitor.mu.Lock()
+	hasHandler := monitor.screenEventHandler != nil
+	monitor.mu.Unlock()
+
+	if !hasHandler {
+		t.Error("expected screen event handler to be set")
+	}
+}
+
 func TestOutputMonitor_HandleLine(t *testing.T) {
 	mockMatcher := &MockPatternMatcher{
 		matches: []MatchResult{
