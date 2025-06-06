@@ -67,12 +67,14 @@ func TestLoadFromEnv(t *testing.T) {
 	origTimeout := os.Getenv("CLAUDE_NOTIFY_IDLE_TIMEOUT")
 	origQuiet := os.Getenv("CLAUDE_NOTIFY_QUIET")
 	origForce := os.Getenv("CLAUDE_NOTIFY_FORCE")
+	origStartup := os.Getenv("CLAUDE_NOTIFY_STARTUP")
 	defer func() {
 		_ = os.Setenv("CLAUDE_NOTIFY_TOPIC", origTopic)
 		_ = os.Setenv("CLAUDE_NOTIFY_SERVER", origServer)
 		_ = os.Setenv("CLAUDE_NOTIFY_IDLE_TIMEOUT", origTimeout)
 		_ = os.Setenv("CLAUDE_NOTIFY_QUIET", origQuiet)
 		_ = os.Setenv("CLAUDE_NOTIFY_FORCE", origForce)
+		_ = os.Setenv("CLAUDE_NOTIFY_STARTUP", origStartup)
 	}()
 
 	tests := []struct {
@@ -89,6 +91,7 @@ func TestLoadFromEnv(t *testing.T) {
 				"CLAUDE_NOTIFY_IDLE_TIMEOUT": "5m",
 				"CLAUDE_NOTIFY_QUIET":        "true",
 				"CLAUDE_NOTIFY_FORCE":        "false",
+				"CLAUDE_NOTIFY_STARTUP":      "true",
 			},
 			checkFunc: func(t *testing.T, cfg *Config) {
 				if cfg.NtfyTopic != "test-topic" {
@@ -105,6 +108,9 @@ func TestLoadFromEnv(t *testing.T) {
 				}
 				if cfg.ForceNotify {
 					t.Error("expected ForceNotify to be false")
+				}
+				if !cfg.StartupNotify {
+					t.Error("expected StartupNotify to be true")
 				}
 			},
 		},
@@ -130,10 +136,18 @@ func TestLoadFromEnv(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "invalid startup value",
+			envVars: map[string]string{
+				"CLAUDE_NOTIFY_STARTUP": "maybe",
+			},
+			wantErr: true,
+		},
+		{
 			name: "boolean variations",
 			envVars: map[string]string{
-				"CLAUDE_NOTIFY_QUIET": "yes",
-				"CLAUDE_NOTIFY_FORCE": "1",
+				"CLAUDE_NOTIFY_QUIET":   "yes",
+				"CLAUDE_NOTIFY_FORCE":   "1",
+				"CLAUDE_NOTIFY_STARTUP": "no",
 			},
 			checkFunc: func(t *testing.T, cfg *Config) {
 				if !cfg.Quiet {
@@ -141,6 +155,9 @@ func TestLoadFromEnv(t *testing.T) {
 				}
 				if !cfg.ForceNotify {
 					t.Error("expected ForceNotify to be true for '1'")
+				}
+				if cfg.StartupNotify {
+					t.Error("expected StartupNotify to be false for 'no'")
 				}
 			},
 		},
@@ -154,6 +171,7 @@ func TestLoadFromEnv(t *testing.T) {
 			_ = os.Unsetenv("CLAUDE_NOTIFY_IDLE_TIMEOUT")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_QUIET")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_FORCE")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_STARTUP")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
 
 			// Set test env vars
@@ -202,6 +220,7 @@ ntfy_server: "https://file.server"
 idle_timeout: "10m"
 quiet: true
 force_notify: false
+startup_notify: true
 patterns:
   - name: "custom"
     regex: "CUSTOM"
@@ -218,6 +237,9 @@ batch_window: "10s"
 				}
 				if cfg.IdleTimeout != 10*time.Minute {
 					t.Errorf("expected IdleTimeout to be 10m but got %v", cfg.IdleTimeout)
+				}
+				if !cfg.StartupNotify {
+					t.Errorf("expected StartupNotify to be true")
 				}
 				if len(cfg.Patterns) != 1 {
 					t.Errorf("expected 1 pattern but got %d", len(cfg.Patterns))

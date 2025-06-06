@@ -18,8 +18,9 @@ type Config struct {
 	IdleTimeout time.Duration `yaml:"idle_timeout" env:"CLAUDE_NOTIFY_IDLE_TIMEOUT"`
 
 	// Behavior flags
-	Quiet       bool `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
-	ForceNotify bool `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
+	Quiet            bool `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
+	ForceNotify      bool `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
+	StartupNotify    bool `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
 
 	// Pattern configuration
 	Patterns []Pattern `yaml:"patterns"`
@@ -189,6 +190,17 @@ func loadFromEnv(cfg *Config) error {
 			cfg.ForceNotify = false
 		default:
 			return fmt.Errorf("invalid CLAUDE_NOTIFY_FORCE value: %q (use true/false)", force)
+		}
+	}
+
+	if startup := os.Getenv("CLAUDE_NOTIFY_STARTUP"); startup != "" {
+		switch startup {
+		case "true", "1", "yes":
+			cfg.StartupNotify = true
+		case "false", "0", "no":
+			cfg.StartupNotify = false
+		default:
+			return fmt.Errorf("invalid CLAUDE_NOTIFY_STARTUP value: %q (use true/false)", startup)
 		}
 	}
 

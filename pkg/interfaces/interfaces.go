@@ -32,3 +32,11 @@ type RateLimiter interface {
 	Allow() bool
 	Reset()
 }
+
+// StatusReporter reports status updates for operations.
+// This can be used for notifications, process status, or any other status updates.
+type StatusReporter interface {
+	ReportSending()
+	ReportSuccess()
+	ReportFailure()
+}

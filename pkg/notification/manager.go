@@ -10,10 +10,11 @@ import (
 
 // Manager orchestrates notification sending with batching and rate limiting
 type Manager struct {
-	config      *config.Config
-	notifier    Notifier
-	rateLimiter interfaces.RateLimiter
-	batcher     *Batcher
+	config         *config.Config
+	notifier       Notifier
+	rateLimiter    interfaces.RateLimiter
+	batcher        *Batcher
+	statusReporter interfaces.StatusReporter
 
 	mu sync.Mutex
 }
@@ -34,6 +35,13 @@ func NewManager(cfg *config.Config, notifier Notifier, rateLimiter interfaces.Ra
 	return m
 }
 
+// SetStatusReporter sets the status reporter for the manager
+func (m *Manager) SetStatusReporter(reporter interfaces.StatusReporter) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.statusReporter = reporter
+}
+
 // Send sends or batches a notification based on configuration
 func (m *Manager) Send(notification Notification) error {
 	m.mu.Lock()
@@ -52,7 +60,21 @@ func (m *Manager) Send(notification Notification) error {
 	}
 
 	// Otherwise send immediately
-	return m.notifier.Send(notification)
+	if m.statusReporter != nil {
+		m.statusReporter.ReportSending()
+	}
+	
+	err := m.notifier.Send(notification)
+	
+	if m.statusReporter != nil {
+		if err != nil {
+			m.statusReporter.ReportFailure()
+		} else {
+			m.statusReporter.ReportSuccess()
+		}
+	}
+	
+	return err
 }
 
 // sendBatch sends a batch of notifications as a single notification
@@ -70,8 +92,23 @@ func (m *Manager) sendBatch(notifications []Notification) {
 	}
 
 	// Send the combined notification
+	// Report status if available
+	if m.statusReporter != nil {
+		m.statusReporter.ReportSending()
+	}
+	
+	err := m.notifier.Send(combined)
+	
+	if m.statusReporter != nil {
+		if err != nil {
+			m.statusReporter.ReportFailure()
+		} else {
+			m.statusReporter.ReportSuccess()
+		}
+	}
+	
 	// Errors are logged at the notifier level - notifications are best effort
-	_ = m.notifier.Send(combined)
+	_ = err
 }
 
 // Close gracefully shuts down the manager

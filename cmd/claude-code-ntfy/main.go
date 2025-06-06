@@ -18,15 +18,17 @@ const (
 func main() {
 	// Parse command line flags
 	var (
-		configPath  string
-		quiet       bool
-		forceNotify bool
-		help        bool
+		configPath     string
+		quiet          bool
+		forceNotify    bool
+		startupNotify  bool
+		help           bool
 	)
 
 	flag.StringVar(&configPath, "config", "", "Path to config file")
 	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications")
 	flag.BoolVar(&forceNotify, "force", false, "Force notifications even when user is active")
+	flag.BoolVar(&startupNotify, "startup", false, "Send notification on startup with current directory")
 	flag.BoolVar(&help, "help", false, "Show help message")
 	flag.Parse()
 
@@ -54,6 +56,9 @@ func main() {
 	}
 	if forceNotify {
 		cfg.ForceNotify = true
+	}
+	if startupNotify {
+		cfg.StartupNotify = true
 	}
 
 	// Get Claude command and args
@@ -117,5 +122,6 @@ func printUsage() {
 	fmt.Println("  CLAUDE_NOTIFY_IDLE_TIMEOUT  User idle timeout (default: 2m)")
 	fmt.Println("  CLAUDE_NOTIFY_QUIET       Disable notifications (true/false)")
 	fmt.Println("  CLAUDE_NOTIFY_FORCE       Force notifications (true/false)")
+	fmt.Println("  CLAUDE_NOTIFY_STARTUP     Send startup notification (true/false)")
 	fmt.Println("  CLAUDE_NOTIFY_CONFIG      Path to config file")
 }
