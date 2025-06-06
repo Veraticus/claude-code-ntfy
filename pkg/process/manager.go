@@ -10,7 +10,6 @@ import (
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
-	"github.com/Veraticus/claude-code-ntfy/pkg/monitor"
 )
 
 // Manager manages the wrapped Claude Code process
@@ -63,20 +62,12 @@ func (m *Manager) Start(command string, args []string) error {
 	// Start I/O copying with output handling
 	go func() {
 		var handler func([]byte)
-		enableFocus := false
 		if m.outputHandler != nil {
 			handler = func(data []byte) {
 				m.outputHandler.HandleData(data)
 			}
-			// Check if we should enable focus detection
-			if m.config.EnableFocusDetection {
-				if outputMonitor, ok := m.outputHandler.(*monitor.OutputMonitor); ok {
-					enableFocus = true
-					outputMonitor.SetFocusReportingEnabled(true)
-				}
-			}
 		}
-		if err := m.ptyManager.CopyIO(os.Stdin, os.Stdout, os.Stderr, handler, enableFocus); err != nil {
+		if err := m.ptyManager.CopyIO(os.Stdin, os.Stdout, os.Stderr, handler); err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code-ntfy: I/O error: %v\n", err)
 		}
 	}()

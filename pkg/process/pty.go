@@ -1,7 +1,6 @@
 package process
 
 import (
-	"bytes"
 	"fmt"
 	"io"
 	"os"
@@ -163,20 +162,17 @@ func (p *PTYManager) monitorTerminalSize() {
 }
 
 // CopyIO handles copying between PTY and standard streams
-func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHandler func([]byte), enableFocus bool) error {
+func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHandler func([]byte)) error {
 	p.mu.Lock()
 	if p.pty == nil {
 		p.mu.Unlock()
 		return fmt.Errorf("PTY not initialized")
 	}
-	ptyFile := p.pty
 	p.mu.Unlock()
 
 	// Store the restore function so we can call it from Stop()
-	rawModeSet := false
 	if file, ok := stdin.(*os.File); ok {
 		if restore, err := setRawMode(int(file.Fd())); err == nil {
-			rawModeSet = true
 			p.mu.Lock()
 			p.restoreFunc = restore
 			p.mu.Unlock()
@@ -188,17 +184,6 @@ func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHan
 				}
 				p.mu.Unlock()
 			}()
-		}
-	}
-
-	// If raw mode was successfully set and focus detection is enabled,
-	// send the enable focus reporting sequence
-	if rawModeSet && enableFocus && outputHandler != nil {
-		enableSeq := []byte("\033[?1004h")
-		if _, err := ptyFile.Write(enableSeq); err == nil {
-			if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
-				fmt.Fprintf(os.Stderr, "claude-code-ntfy: sent focus enable sequence\n")
-			}
 		}
 	}
 
@@ -255,55 +240,12 @@ func (p *PTYManager) CopyIO(stdin io.Reader, stdout, stderr io.Writer, outputHan
 type outputReader struct {
 	reader  io.Reader
 	handler func([]byte)
-	buffer  []byte // Buffer for incomplete sequences
 }
 
 func (r *outputReader) Read(p []byte) (n int, err error) {
-	// Read into a temporary buffer so we can filter
-	tmpBuf := make([]byte, len(p))
-	n, err = r.reader.Read(tmpBuf)
-	if n > 0 {
-		// Add to our internal buffer
-		r.buffer = append(r.buffer, tmpBuf[:n]...)
-
-		// Filter out focus reporting sequences
-		filtered := r.filterFocusSequences(r.buffer)
-
-		// Copy filtered data to output
-		copy(p, filtered)
-		resultLen := len(filtered)
-
-		// Keep any incomplete sequences in buffer
-		if len(filtered) < len(r.buffer) {
-			// We filtered something out, clear the buffer
-			r.buffer = r.buffer[:0]
-		} else if len(r.buffer) > 1024 {
-			// Prevent buffer from growing too large
-			r.buffer = r.buffer[len(r.buffer)-100:]
-		}
-
-		// Call handler with the original unfiltered data
-		if r.handler != nil {
-			r.handler(tmpBuf[:n])
-		}
-
-		return resultLen, err
+	n, err = r.reader.Read(p)
+	if n > 0 && r.handler != nil {
+		r.handler(p[:n])
 	}
 	return n, err
-}
-
-// filterFocusSequences removes focus reporting escape sequences from data
-func (r *outputReader) filterFocusSequences(data []byte) []byte {
-	// Sequences to filter out
-	focusSequences := [][]byte{
-		[]byte("\033[?1004h"), // Enable focus reporting
-		[]byte("\033[?1004l"), // Disable focus reporting
-	}
-
-	result := data
-	for _, seq := range focusSequences {
-		result = bytes.ReplaceAll(result, seq, []byte{})
-	}
-
-	return result
 }

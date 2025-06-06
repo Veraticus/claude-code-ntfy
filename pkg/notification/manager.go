@@ -53,6 +53,26 @@ func (m *Manager) Send(notification Notification) error {
 		return nil
 	}
 
+	// Startup notifications should be sent immediately, not batched
+	if notification.Pattern == "startup" {
+		// Send immediately
+		if m.statusReporter != nil {
+			m.statusReporter.ReportSending()
+		}
+
+		err := m.notifier.Send(notification)
+
+		if m.statusReporter != nil {
+			if err != nil {
+				m.statusReporter.ReportFailure()
+			} else {
+				m.statusReporter.ReportSuccess()
+			}
+		}
+
+		return err
+	}
+
 	// If batching is enabled, add to batch
 	if m.batcher != nil {
 		m.batcher.Add(notification)

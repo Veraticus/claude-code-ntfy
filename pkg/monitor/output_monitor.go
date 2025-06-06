@@ -61,11 +61,6 @@ func (om *OutputMonitor) HandleData(data []byte) {
 	// Detect terminal sequences before locking (non-blocking operation)
 	if om.sequenceDetector != nil && om.screenEventHandler != nil {
 		om.sequenceDetector.DetectSequences(data, om.screenEventHandler)
-
-		// Mark activity in the status indicator if it supports it
-		if indicator, ok := om.screenEventHandler.(*status.Indicator); ok {
-			indicator.MarkActivity()
-		}
 	}
 
 	om.mu.Lock()
@@ -245,4 +240,11 @@ func (om *OutputMonitor) HandleFocusOut() {
 // SetFocusReportingEnabled sets whether focus reporting is enabled
 func (om *OutputMonitor) SetFocusReportingEnabled(enabled bool) {
 	om.terminalState.SetFocusReportingEnabled(enabled)
+}
+
+// ResetStartTime resets the start time to now, which extends the grace period
+func (om *OutputMonitor) ResetStartTime() {
+	om.mu.Lock()
+	defer om.mu.Unlock()
+	om.startTime = time.Now()
 }

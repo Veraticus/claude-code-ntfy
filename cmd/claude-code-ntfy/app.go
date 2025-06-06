@@ -124,6 +124,12 @@ func (a *Application) Run(command string, args []string) error {
 			Pattern: "startup",
 		}
 		_ = a.deps.NotificationManager.Send(startupNotification)
+
+		// After sending startup notification, update the startup time in output monitor
+		// to suppress subsequent notifications for StartupGracePeriod
+		if om, ok := a.deps.OutputMonitor.(*monitor.OutputMonitor); ok {
+			om.ResetStartTime()
+		}
 	}
 
 	if err := a.deps.ProcessManager.Start(command, args); err != nil {

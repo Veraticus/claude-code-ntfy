@@ -32,20 +32,15 @@ type Indicator struct {
 	isIdle           bool
 	isFocused        bool
 	focusReportingOn bool
-
-	// Activity tracking for dynamic refresh
-	lastActivity time.Time
-	refreshChan  chan struct{}
 }
 
 // NewIndicator creates a new status indicator
 func NewIndicator(writer io.Writer, enabled bool) *Indicator {
 	return &Indicator{
-		status:      StatusIdle,
-		writer:      writer,
-		enabled:     enabled,
-		isFocused:   true, // Assume focused by default
-		refreshChan: make(chan struct{}, 1),
+		status:    StatusIdle,
+		writer:    writer,
+		enabled:   enabled,
+		isFocused: true, // Assume focused by default
 	}
 }
 
@@ -164,32 +159,15 @@ func (i *Indicator) Clear() error {
 // StartAutoRefresh starts a goroutine that refreshes the display periodically
 func (i *Indicator) StartAutoRefresh(stopChan <-chan struct{}) {
 	go func() {
-		// Use dynamic refresh intervals
-		normalInterval := 2 * time.Second
-		activeInterval := 100 * time.Millisecond
-
-		ticker := time.NewTicker(normalInterval)
+		// Fixed 5ms refresh interval - imperceptible flicker
+		ticker := time.NewTicker(5 * time.Millisecond)
 		defer ticker.Stop()
 
 		for {
 			select {
 			case <-ticker.C:
 				i.mu.Lock()
-				// Check if we've had recent activity
-				isActive := time.Since(i.lastActivity) < 500*time.Millisecond
 				_ = i.draw() // Best effort
-				i.mu.Unlock()
-
-				// Adjust ticker interval based on activity
-				if isActive {
-					ticker.Reset(activeInterval)
-				} else {
-					ticker.Reset(normalInterval)
-				}
-			case <-i.refreshChan:
-				// Immediate refresh requested
-				i.mu.Lock()
-				_ = i.draw()
 				i.mu.Unlock()
 			case <-stopChan:
 				_ = i.Clear() // Best effort
@@ -203,18 +181,12 @@ func (i *Indicator) StartAutoRefresh(stopChan <-chan struct{}) {
 // It redraws the status indicator when the screen is cleared
 func (i *Indicator) HandleScreenClear() {
 	i.mu.Lock()
-	i.lastActivity = time.Now()
-	i.mu.Unlock()
+	defer i.mu.Unlock()
 
 	// Always redraw when screen is cleared or interfered with
 	// Don't check status == StatusIdle, always redraw to maintain visibility
 	if i.enabled {
-		// Trigger immediate refresh
-		select {
-		case i.refreshChan <- struct{}{}:
-		default:
-			// Channel is full, refresh already pending
-		}
+		_ = i.draw() // Best effort
 	}
 }
 
@@ -253,13 +225,6 @@ func (i *Indicator) SetFocusReportingEnabled(enabled bool) {
 	i.focusReportingOn = enabled
 	i.mu.Unlock()
 	_ = i.draw()
-}
-
-// MarkActivity marks that there has been recent activity
-func (i *Indicator) MarkActivity() {
-	i.mu.Lock()
-	i.lastActivity = time.Now()
-	i.mu.Unlock()
 }
 
 // Ensure Indicator implements ScreenEventHandler

@@ -13,5 +13,5 @@ type PTY interface {
 	ProcessState() *os.ProcessState
 	Process() *os.Process
 	GetPTY() *os.File
-	CopyIO(stdin io.Reader, stdout, stderr io.Writer, handler func([]byte), enableFocus bool) error
+	CopyIO(stdin io.Reader, stdout, stderr io.Writer, handler func([]byte)) error
 }
