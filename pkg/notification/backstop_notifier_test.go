@@ -193,3 +193,30 @@ func TestBackstopNotifier_NoTimeoutNoBackstop(t *testing.T) {
 		t.Error("Unexpected backstop notification with zero timeout")
 	}
 }
+
+func TestBackstopNotifier_BellDisablesBackstop(t *testing.T) {
+	mock := &testNotifier{}
+	backstop := NewBackstopNotifier(mock, 50*time.Millisecond)
+	defer func() { _ = backstop.Close() }()
+
+	// Mark activity to start timer
+	backstop.MarkActivity()
+
+	// Simulate bell notification by marking backstop as sent
+	backstop.SetBackstopSent(true)
+
+	// Wait past the timeout
+	time.Sleep(100 * time.Millisecond)
+
+	// Should have no backstop notifications since bell disabled it
+	notifications := mock.getNotifications()
+	backstopCount := 0
+	for _, n := range notifications {
+		if n.Pattern == "backstop" {
+			backstopCount++
+		}
+	}
+	if backstopCount != 0 {
+		t.Errorf("Expected no backstop notifications after bell, got %d", backstopCount)
+	}
+}

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"os"
+	"regexp"
 	"sync"
 	"time"
 
@@ -70,22 +71,11 @@ func (om *OutputMonitor) HandleData(data []byte) {
 		om.sequenceDetector.DetectSequences(data, om.screenEventHandler)
 	}
 
-	// Check if this is a status indicator update (contains save/restore cursor sequences)
-	isStatusUpdate := om.isStatusIndicatorUpdate(data)
-
 	om.mu.Lock()
 	defer om.mu.Unlock()
 
-	// Only update last output time and mark activity for non-status updates
-	if !isStatusUpdate {
-		// Update last output time
-		om.lastOutputTime = time.Now()
-
-		// Notify activity marker if we have one
-		if marker, ok := om.notifier.(notification.ActivityMarker); ok {
-			marker.MarkActivity()
-		}
-	}
+	// Always update last output time when we receive data
+	om.lastOutputTime = time.Now()
 
 	// Add data to line buffer
 	om.lineBuffer.Write(data)
@@ -112,6 +102,18 @@ func (om *OutputMonitor) HandleData(data []byte) {
 
 // processLine processes a single line of output
 func (om *OutputMonitor) processLine(line string) {
+	// Skip empty lines or lines that only contain ANSI sequences
+	trimmed := stripANSI(line)
+	if len(trimmed) > 0 {
+		// This is a real content line from Claude, mark activity
+		if marker, ok := om.notifier.(notification.ActivityMarker); ok {
+			marker.MarkActivity()
+			if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+				fmt.Fprintf(os.Stderr, "claude-code-ntfy: Activity marked for line: %q\n", trimmed)
+			}
+		}
+	}
+
 	// Skip if in quiet mode
 	if om.config.Quiet {
 		return
@@ -153,6 +155,17 @@ func (om *OutputMonitor) processLine(line string) {
 					// Log error but don't stop processing
 					// This ensures we continue monitoring even if notifications fail
 					fmt.Fprintf(os.Stderr, "claude-code-ntfy: notification error: %v\n", err)
+				}
+
+				// If this is a bell notification, mark backstop as sent
+				// since Claude is explicitly asking for attention
+				if match.PatternName == "bell" {
+					if backstopSetter, ok := om.notifier.(interface{ SetBackstopSent(bool) }); ok {
+						backstopSetter.SetBackstopSent(true)
+						if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+							fmt.Fprintf(os.Stderr, "claude-code-ntfy: bell detected, disabling backstop notification\n")
+						}
+					}
 				}
 			}
 		}
@@ -283,21 +296,13 @@ func (om *OutputMonitor) GetTerminalTitle() string {
 	return ""
 }
 
-// isStatusIndicatorUpdate checks if the data is likely a status indicator update
-func (om *OutputMonitor) isStatusIndicatorUpdate(data []byte) bool {
-	// Status indicator updates use specific ANSI sequences:
-	// - \0337 (DECSC) to save cursor position
-	// - \0338 (DECRC) to restore cursor position
-	// - \033[999;1H to move to bottom line
-	// These sequences together indicate a status update
-
-	// Check for save cursor sequence (DECSC)
-	if bytes.Contains(data, []byte("\0337")) {
-		// Also check for restore cursor sequence (DECRC) or bottom line positioning
-		if bytes.Contains(data, []byte("\0338")) || bytes.Contains(data, []byte("\033[999;1H")) {
-			return true
-		}
-	}
-
-	return false
+// stripANSI removes ANSI escape sequences from a string but preserves bell character
+func stripANSI(s string) string {
+	// This regex matches ANSI escape sequences
+	// CSI sequences: ESC [ ... letter
+	// OSC sequences: ESC ] ... (terminated by BEL or ST)
+	// Other escape sequences
+	// Note: We intentionally preserve \x07 (bell) when it appears alone
+	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[PX^_].*?\x1b\\|\x1b[78DEHMN=><]`)
+	return ansiRegex.ReplaceAllString(s, "")
 }

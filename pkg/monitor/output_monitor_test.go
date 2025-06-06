@@ -244,7 +244,7 @@ func (m *mockScreenEventHandlerOM) HandleFocusOut() {
 	m.focusOutCount++
 }
 
-func TestOutputMonitorIgnoresStatusUpdates(t *testing.T) {
+func TestOutputMonitorActivityTracking(t *testing.T) {
 	// Create a mock activity marker to track when activity is marked
 	mockActivityMarker := &mockActivityMarkerOM{}
 
@@ -276,19 +276,35 @@ func TestOutputMonitorIgnoresStatusUpdates(t *testing.T) {
 		t.Errorf("Expected activity to be marked once for regular output, got %d", mockActivityMarker.activityCount)
 	}
 
-	// Test 2: Status indicator update should NOT mark activity
-	statusUpdate := []byte("\0337\033[r\033[999;1H\033[2K[ntfy] Status update\0338")
-	om.HandleData(statusUpdate)
+	// Test 2: Empty line should NOT mark activity
+	emptyLine := []byte("\n")
+	om.HandleData(emptyLine)
 
 	if mockActivityMarker.activityCount != 1 {
-		t.Errorf("Expected activity count to remain 1 after status update, got %d", mockActivityMarker.activityCount)
+		t.Errorf("Expected activity count to remain 1 after empty line, got %d", mockActivityMarker.activityCount)
 	}
 
-	// Test 3: Another regular output should mark activity again
-	om.HandleData([]byte("More test output\n"))
+	// Test 3: Line with only ANSI sequences should NOT mark activity
+	ansiOnlyLine := []byte("\033[32m\033[0m\n")
+	om.HandleData(ansiOnlyLine)
+
+	if mockActivityMarker.activityCount != 1 {
+		t.Errorf("Expected activity count to remain 1 after ANSI-only line, got %d", mockActivityMarker.activityCount)
+	}
+
+	// Test 4: Bell character alone should mark activity
+	bellLine := []byte("\x07\n")
+	om.HandleData(bellLine)
 
 	if mockActivityMarker.activityCount != 2 {
-		t.Errorf("Expected activity to be marked twice total, got %d", mockActivityMarker.activityCount)
+		t.Errorf("Expected activity to be marked for bell character, got %d", mockActivityMarker.activityCount)
+	}
+
+	// Test 5: Another regular output should mark activity again
+	om.HandleData([]byte("More test output\n"))
+
+	if mockActivityMarker.activityCount != 3 {
+		t.Errorf("Expected activity to be marked three times total, got %d", mockActivityMarker.activityCount)
 	}
 }
 

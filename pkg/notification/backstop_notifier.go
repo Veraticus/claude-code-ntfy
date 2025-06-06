@@ -119,6 +119,19 @@ func (bn *BackstopNotifier) startTimer() {
 	}
 }
 
+// SetBackstopSent sets the backstop sent flag
+func (bn *BackstopNotifier) SetBackstopSent(sent bool) {
+	bn.mu.Lock()
+	defer bn.mu.Unlock()
+
+	bn.backstopSent = sent
+
+	// If we're marking it as sent, stop the timer
+	if sent && bn.timer != nil {
+		bn.timer.Stop()
+	}
+}
+
 // ResetSession resets the backstop state for a new prompt/session
 func (bn *BackstopNotifier) ResetSession() {
 	bn.mu.Lock()
