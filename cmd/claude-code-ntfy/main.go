@@ -6,13 +6,10 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
-)
-
-const (
-	defaultClaudeCommand = "claude"
 )
 
 func main() {
@@ -64,7 +61,31 @@ func main() {
 
 	// Get Claude command and args
 	userArgs := flag.Args()
-	command := defaultClaudeCommand
+	var command string
+
+	// Determine claude path
+	if cfg.ClaudePath != "" {
+		// Use configured path directly - don't validate, let it fail at execution if wrong
+		command = cfg.ClaudePath
+		if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "claude-code-ntfy: Using configured claude path: %s\n", command)
+		}
+	} else {
+		// Try to find claude in PATH, excluding ourselves
+		claudePath, err := findClaude()
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "Error: %v\n", err)
+			fmt.Fprintf(os.Stderr, "\nYou can fix this by:\n")
+			fmt.Fprintf(os.Stderr, "1. Setting claude_path in your config file (~/.config/claude-code-ntfy/config.yaml)\n")
+			fmt.Fprintf(os.Stderr, "2. Setting CLAUDE_NOTIFY_CLAUDE_PATH environment variable\n")
+			fmt.Fprintf(os.Stderr, "3. Ensuring the real claude is in your PATH\n")
+			os.Exit(1)
+		}
+		command = claudePath
+		if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "1" {
+			fmt.Fprintf(os.Stderr, "claude-code-ntfy: Found claude in PATH at: %s\n", command)
+		}
+	}
 
 	// Merge default args with user args
 	var args []string
@@ -72,13 +93,6 @@ func main() {
 		args = append(args, cfg.DefaultClaudeArgs...)
 	}
 	args = append(args, userArgs...)
-
-	// Debug: Check if claude command exists
-	if _, err := exec.LookPath(command); err != nil {
-		fmt.Fprintf(os.Stderr, "Error: claude command not found in PATH\n")
-		fmt.Fprintf(os.Stderr, "Make sure 'claude' is installed and in your PATH\n")
-		os.Exit(1)
-	}
 
 	// Create dependencies
 	deps, err := NewDependencies(cfg)
@@ -149,4 +163,54 @@ func printUsage() {
 	fmt.Println("  CLAUDE_NOTIFY_STARTUP     Send startup notification (true/false)")
 	fmt.Println("  CLAUDE_NOTIFY_DEFAULT_ARGS  Default Claude args (comma-separated)")
 	fmt.Println("  CLAUDE_NOTIFY_CONFIG      Path to config file")
+	fmt.Println("  CLAUDE_NOTIFY_CLAUDE_PATH  Path to the real claude binary")
+	fmt.Println()
+	fmt.Println("Configuration file: ~/.config/claude-code-ntfy/config.yaml")
+}
+
+// findClaude searches for the real claude binary in PATH, excluding ourselves
+func findClaude() (string, error) {
+	// Get our own executable path to exclude it
+	ourPath, err := os.Executable()
+	if err != nil {
+		return "", fmt.Errorf("failed to get our executable path: %w", err)
+	}
+	ourPath, err = filepath.EvalSymlinks(ourPath)
+	if err != nil {
+		return "", fmt.Errorf("failed to resolve our executable path: %w", err)
+	}
+
+	// Search PATH for claude
+	pathEnv := os.Getenv("PATH")
+	if pathEnv == "" {
+		return "", fmt.Errorf("PATH environment variable is empty")
+	}
+
+	for _, dir := range filepath.SplitList(pathEnv) {
+		claudePath := filepath.Join(dir, "claude")
+		
+		// Check if file exists and is executable
+		info, err := os.Stat(claudePath)
+		if err != nil {
+			continue // Not found in this directory
+		}
+		
+		if info.Mode().IsRegular() && info.Mode()&0111 != 0 {
+			// Resolve symlinks to check if it's us
+			resolvedPath, err := filepath.EvalSymlinks(claudePath)
+			if err != nil {
+				continue
+			}
+			
+			// Skip if it's our own binary
+			if resolvedPath == ourPath {
+				continue
+			}
+			
+			// Found a different claude binary
+			return claudePath, nil
+		}
+	}
+
+	return "", fmt.Errorf("claude not found in PATH (excluding claude-code-ntfy wrapper)")
 }

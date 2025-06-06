@@ -24,6 +24,9 @@ type Config struct {
 	StartupNotify     bool          `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
 	StartupGracePeriod time.Duration `yaml:"startup_grace_period" env:"CLAUDE_NOTIFY_STARTUP_GRACE"`
 	DefaultClaudeArgs []string      `yaml:"default_claude_args"`
+	
+	// Claude path configuration
+	ClaudePath        string        `yaml:"claude_path" env:"CLAUDE_NOTIFY_CLAUDE_PATH"`
 
 	// Pattern configuration
 	Patterns []Pattern `yaml:"patterns"`
@@ -224,6 +227,10 @@ func loadFromEnv(cfg *Config) error {
 		if len(filtered) > 0 {
 			cfg.DefaultClaudeArgs = filtered
 		}
+	}
+
+	if claudePath := os.Getenv("CLAUDE_NOTIFY_CLAUDE_PATH"); claudePath != "" {
+		cfg.ClaudePath = claudePath
 	}
 
 	return nil

@@ -39,48 +39,10 @@
             "-X main.version=${version}"
           ];
           
-          # Create a wrapper that hijacks the claude command
+          # Create a direct claude symlink/wrapper
           postInstall = ''
-            # Create wrapper script
-            mkdir -p $out/bin
-            
-            # Move the actual binary
-            mv $out/bin/claude-code-ntfy $out/bin/.claude-code-ntfy-wrapped
-            
-            # Create the claude wrapper
-            cat > $out/bin/claude <<'EOF'
-            #!/usr/bin/env bash
-            
-            # Find the original claude command (skip our wrapper)
-            ORIGINAL_CLAUDE=""
-            IFS=':' read -ra PATH_ARRAY <<< "$PATH"
-            for dir in "''${PATH_ARRAY[@]}"; do
-              if [[ -x "$dir/claude" ]] && [[ "$dir" != "$out/bin" ]] && [[ "$dir" != "${placeholder "out"}/bin" ]]; then
-                # Check if it's the npm claude (not another wrapper)
-                if [[ -f "$dir/../lib/node_modules/@anthropic-ai/claude-cli/package.json" ]] || \
-                   [[ -f "$dir/../../lib/node_modules/@anthropic-ai/claude-cli/package.json" ]] || \
-                   "$dir/claude" --version 2>&1 | grep -q "claude" ; then
-                  ORIGINAL_CLAUDE="$dir/claude"
-                  break
-                fi
-              fi
-            done
-            
-            if [[ -z "$ORIGINAL_CLAUDE" ]]; then
-              echo "Error: Original claude command not found in PATH" >&2
-              echo "Please ensure Claude Code is installed via npm" >&2
-              exit 1
-            fi
-            
-            # Execute our wrapper pointing to the original claude
-            export CLAUDE_ORIGINAL_PATH="$ORIGINAL_CLAUDE"
-            exec "${placeholder "out"}/bin/.claude-code-ntfy-wrapped" "$ORIGINAL_CLAUDE" "$@"
-            EOF
-            
-            chmod +x $out/bin/claude
-            
-            # Also keep claude-code-ntfy as explicit command
-            ln -s .claude-code-ntfy-wrapped $out/bin/claude-code-ntfy
+            # Rename the binary to claude so it can be called directly
+            mv $out/bin/claude-code-ntfy $out/bin/claude
           '';
           
           meta = with pkgs.lib; {
