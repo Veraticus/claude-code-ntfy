@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"os"
+	"time"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
@@ -91,7 +92,17 @@ func NewApplication(deps *Dependencies) *Application {
 
 // Run starts the application with the given command and arguments
 func (a *Application) Run(command string, args []string) error {
-	// No startup notification - we only notify when Claude needs attention
+	// Send startup notification if configured
+	if a.deps.Config.StartupNotify && !a.deps.Config.Quiet {
+		pwd, _ := os.Getwd()
+		startupNotification := notification.Notification{
+			Title:   "Claude Code Session Started",
+			Message: fmt.Sprintf("Working directory: %s", pwd),
+			Time:    time.Now(),
+			Pattern: "startup",
+		}
+		_ = a.deps.Notifier.Send(startupNotification)
+	}
 
 	if err := a.deps.ProcessManager.Start(command, args); err != nil {
 		return err

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -16,7 +17,9 @@ type Config struct {
 	NtfyServer string `yaml:"ntfy_server" env:"CLAUDE_NOTIFY_SERVER"`
 
 	// Behavior flags
-	Quiet bool `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
+	Quiet             bool     `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
+	StartupNotify     bool     `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
+	DefaultClaudeArgs []string `yaml:"default_claude_args"`
 
 	// Backstop notification - send notification after inactivity
 	BackstopTimeout time.Duration `yaml:"backstop_timeout" env:"CLAUDE_NOTIFY_BACKSTOP_TIMEOUT"`
@@ -30,6 +33,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		NtfyServer:      "https://ntfy.sh",
 		BackstopTimeout: 30 * time.Second,
+		StartupNotify:   true, // Default to true so users know notifications are working
 	}
 }
 
@@ -118,8 +122,35 @@ func loadFromEnv(cfg *Config) error {
 		}
 	}
 
+	if startup := os.Getenv("CLAUDE_NOTIFY_STARTUP"); startup != "" {
+		switch startup {
+		case "true", "1", "yes":
+			cfg.StartupNotify = true
+		case "false", "0", "no":
+			cfg.StartupNotify = false
+		default:
+			return fmt.Errorf("invalid CLAUDE_NOTIFY_STARTUP value: %q (use true/false)", startup)
+		}
+	}
+
 	if claudePath := os.Getenv("CLAUDE_NOTIFY_CLAUDE_PATH"); claudePath != "" {
 		cfg.ClaudePath = claudePath
+	}
+
+	if defaultArgs := os.Getenv("CLAUDE_NOTIFY_DEFAULT_ARGS"); defaultArgs != "" {
+		// Split by comma and trim whitespace
+		args := strings.Split(defaultArgs, ",")
+		for i, arg := range args {
+			args[i] = strings.TrimSpace(arg)
+		}
+		// Filter out empty strings
+		var filteredArgs []string
+		for _, arg := range args {
+			if arg != "" {
+				filteredArgs = append(filteredArgs, arg)
+			}
+		}
+		cfg.DefaultClaudeArgs = filteredArgs
 	}
 
 	return nil

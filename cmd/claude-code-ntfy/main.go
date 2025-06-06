@@ -77,8 +77,12 @@ func main() {
 		}
 	}
 
-	// Use user args directly
-	args := userArgs
+	// Merge default args with user args
+	var args []string
+	if len(cfg.DefaultClaudeArgs) > 0 {
+		args = append(args, cfg.DefaultClaudeArgs...)
+	}
+	args = append(args, userArgs...)
 
 	// Create dependencies
 	deps, err := NewDependencies(cfg)
@@ -145,6 +149,8 @@ func printUsage() {
 	fmt.Println("  CLAUDE_NOTIFY_SERVER      Ntfy server URL (default: https://ntfy.sh)")
 	fmt.Println("  CLAUDE_NOTIFY_BACKSTOP_TIMEOUT  Inactivity timeout (default: 30s)")
 	fmt.Println("  CLAUDE_NOTIFY_QUIET       Disable notifications (true/false)")
+	fmt.Println("  CLAUDE_NOTIFY_STARTUP     Send startup notification (default: true)")
+	fmt.Println("  CLAUDE_NOTIFY_DEFAULT_ARGS  Default Claude args (comma-separated)")
 	fmt.Println("  CLAUDE_NOTIFY_CONFIG      Path to config file")
 	fmt.Println("  CLAUDE_NOTIFY_CLAUDE_PATH  Path to the real claude binary")
 	fmt.Println()

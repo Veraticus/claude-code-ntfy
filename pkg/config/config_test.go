@@ -18,6 +18,9 @@ func TestDefaultConfig(t *testing.T) {
 	if cfg.BackstopTimeout != 30*time.Second {
 		t.Errorf("expected BackstopTimeout to be 30s but got %v", cfg.BackstopTimeout)
 	}
+	if !cfg.StartupNotify {
+		t.Error("expected StartupNotify to be true by default")
+	}
 }
 
 func TestLoadFromEnv(t *testing.T) {
@@ -27,12 +30,16 @@ func TestLoadFromEnv(t *testing.T) {
 	origBackstopTimeout := os.Getenv("CLAUDE_NOTIFY_BACKSTOP_TIMEOUT")
 	origQuiet := os.Getenv("CLAUDE_NOTIFY_QUIET")
 	origClaudePath := os.Getenv("CLAUDE_NOTIFY_CLAUDE_PATH")
+	origDefaultArgs := os.Getenv("CLAUDE_NOTIFY_DEFAULT_ARGS")
+	origStartup := os.Getenv("CLAUDE_NOTIFY_STARTUP")
 	defer func() {
 		_ = os.Setenv("CLAUDE_NOTIFY_TOPIC", origTopic)
 		_ = os.Setenv("CLAUDE_NOTIFY_SERVER", origServer)
 		_ = os.Setenv("CLAUDE_NOTIFY_BACKSTOP_TIMEOUT", origBackstopTimeout)
 		_ = os.Setenv("CLAUDE_NOTIFY_QUIET", origQuiet)
 		_ = os.Setenv("CLAUDE_NOTIFY_CLAUDE_PATH", origClaudePath)
+		_ = os.Setenv("CLAUDE_NOTIFY_DEFAULT_ARGS", origDefaultArgs)
+		_ = os.Setenv("CLAUDE_NOTIFY_STARTUP", origStartup)
 	}()
 
 	tests := []struct {
@@ -93,6 +100,73 @@ func TestLoadFromEnv(t *testing.T) {
 				}
 			},
 		},
+		{
+			name: "default args parsing",
+			envVars: map[string]string{
+				"CLAUDE_NOTIFY_TOPIC":        "test-topic",
+				"CLAUDE_NOTIFY_DEFAULT_ARGS": "--verbose,--model,gpt-4,--timeout,30",
+			},
+			checkFunc: func(t *testing.T, cfg *Config) {
+				expected := []string{"--verbose", "--model", "gpt-4", "--timeout", "30"}
+				if len(cfg.DefaultClaudeArgs) != len(expected) {
+					t.Errorf("expected %d default args but got %d", len(expected), len(cfg.DefaultClaudeArgs))
+				}
+				for i, arg := range expected {
+					if i < len(cfg.DefaultClaudeArgs) && cfg.DefaultClaudeArgs[i] != arg {
+						t.Errorf("expected default arg[%d] to be %q but got %q", i, arg, cfg.DefaultClaudeArgs[i])
+					}
+				}
+			},
+		},
+		{
+			name: "default args with spaces",
+			envVars: map[string]string{
+				"CLAUDE_NOTIFY_TOPIC":        "test-topic",
+				"CLAUDE_NOTIFY_DEFAULT_ARGS": " --verbose , --debug , --quiet ",
+			},
+			checkFunc: func(t *testing.T, cfg *Config) {
+				expected := []string{"--verbose", "--debug", "--quiet"}
+				if len(cfg.DefaultClaudeArgs) != len(expected) {
+					t.Errorf("expected %d default args but got %d", len(expected), len(cfg.DefaultClaudeArgs))
+				}
+				for i, arg := range expected {
+					if i < len(cfg.DefaultClaudeArgs) && cfg.DefaultClaudeArgs[i] != arg {
+						t.Errorf("expected default arg[%d] to be %q but got %q", i, arg, cfg.DefaultClaudeArgs[i])
+					}
+				}
+			},
+		},
+		{
+			name: "empty default args",
+			envVars: map[string]string{
+				"CLAUDE_NOTIFY_TOPIC":        "test-topic",
+				"CLAUDE_NOTIFY_DEFAULT_ARGS": ",,",
+			},
+			checkFunc: func(t *testing.T, cfg *Config) {
+				if len(cfg.DefaultClaudeArgs) != 0 {
+					t.Errorf("expected no default args but got %d", len(cfg.DefaultClaudeArgs))
+				}
+			},
+		},
+		{
+			name: "startup notification parsing",
+			envVars: map[string]string{
+				"CLAUDE_NOTIFY_TOPIC":   "test-topic",
+				"CLAUDE_NOTIFY_STARTUP": "false",
+			},
+			checkFunc: func(t *testing.T, cfg *Config) {
+				if cfg.StartupNotify {
+					t.Error("expected StartupNotify to be false")
+				}
+			},
+		},
+		{
+			name: "invalid startup value",
+			envVars: map[string]string{
+				"CLAUDE_NOTIFY_STARTUP": "maybe",
+			},
+			wantErr: true,
+		},
 	}
 
 	for _, tt := range tests {
@@ -103,6 +177,8 @@ func TestLoadFromEnv(t *testing.T) {
 			_ = os.Unsetenv("CLAUDE_NOTIFY_BACKSTOP_TIMEOUT")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_QUIET")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_CLAUDE_PATH")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_DEFAULT_ARGS")
+			_ = os.Unsetenv("CLAUDE_NOTIFY_STARTUP")
 			_ = os.Unsetenv("CLAUDE_NOTIFY_CONFIG")
 
 			// Set test env vars
@@ -156,6 +232,10 @@ ntfy_server: "https://file.server"
 backstop_timeout: "10s"
 quiet: true
 claude_path: "/opt/claude/bin/claude"
+default_claude_args:
+  - "--verbose"
+  - "--model"
+  - "gpt-4"
 `,
 			checkFunc: func(t *testing.T, cfg *Config) {
 				if cfg.NtfyTopic != "file-topic" {
@@ -169,6 +249,15 @@ claude_path: "/opt/claude/bin/claude"
 				}
 				if cfg.ClaudePath != "/opt/claude/bin/claude" {
 					t.Errorf("expected ClaudePath to be /opt/claude/bin/claude but got %s", cfg.ClaudePath)
+				}
+				expected := []string{"--verbose", "--model", "gpt-4"}
+				if len(cfg.DefaultClaudeArgs) != len(expected) {
+					t.Errorf("expected %d default args but got %d", len(expected), len(cfg.DefaultClaudeArgs))
+				}
+				for i, arg := range expected {
+					if i < len(cfg.DefaultClaudeArgs) && cfg.DefaultClaudeArgs[i] != arg {
+						t.Errorf("expected default arg[%d] to be %q but got %q", i, arg, cfg.DefaultClaudeArgs[i])
+					}
 				}
 			},
 		},
