@@ -1,6 +1,7 @@
 package monitor
 
 import (
+	"regexp"
 	"sync"
 	"testing"
 	"time"
@@ -241,6 +242,74 @@ func (m *mockScreenEventHandlerOM) HandleFocusOut() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.focusOutCount++
+}
+
+func TestOutputMonitorIgnoresStatusUpdates(t *testing.T) {
+	// Create a mock activity marker to track when activity is marked
+	mockActivityMarker := &mockActivityMarkerOM{}
+
+	cfg := &config.Config{
+		Patterns: []config.Pattern{
+			{Name: "test", Regex: "test", Enabled: true},
+		},
+	}
+
+	// Compile patterns
+	for i := range cfg.Patterns {
+		pattern := &cfg.Patterns[i]
+		if pattern.Regex != "" {
+			re := regexp.MustCompile(pattern.Regex)
+			pattern.SetCompiledRegex(re)
+		}
+	}
+
+	mockMatcher := &MockPatternMatcher{}
+	mockIdle := &MockIdleDetector{isIdle: true}
+
+	om := NewOutputMonitor(cfg, mockMatcher, mockIdle, mockActivityMarker)
+
+	// Test 1: Regular Claude output should mark activity
+	regularOutput := []byte("This is a test output\n")
+	om.HandleData(regularOutput)
+
+	if mockActivityMarker.activityCount != 1 {
+		t.Errorf("Expected activity to be marked once for regular output, got %d", mockActivityMarker.activityCount)
+	}
+
+	// Test 2: Status indicator update should NOT mark activity
+	statusUpdate := []byte("\0337\033[r\033[999;1H\033[2K[ntfy] Status update\0338")
+	om.HandleData(statusUpdate)
+
+	if mockActivityMarker.activityCount != 1 {
+		t.Errorf("Expected activity count to remain 1 after status update, got %d", mockActivityMarker.activityCount)
+	}
+
+	// Test 3: Another regular output should mark activity again
+	om.HandleData([]byte("More test output\n"))
+
+	if mockActivityMarker.activityCount != 2 {
+		t.Errorf("Expected activity to be marked twice total, got %d", mockActivityMarker.activityCount)
+	}
+}
+
+// mockActivityMarkerOM implements both Notifier and ActivityMarker interfaces
+type mockActivityMarkerOM struct {
+	mu            sync.Mutex
+	activityCount int
+	notifications []notification.Notification
+}
+
+func (m *mockActivityMarkerOM) Send(n notification.Notification) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.notifications = append(m.notifications, n)
+	return nil
+}
+
+func (m *mockActivityMarkerOM) MarkActivity() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.activityCount++
 }
 
 func TestOutputMonitorScreenEventHandling(t *testing.T) {

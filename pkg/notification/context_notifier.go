@@ -21,7 +21,7 @@ func NewContextNotifier(underlying Notifier, terminalInfo func() string) *Contex
 	if err == nil {
 		cwdBasename = filepath.Base(cwd)
 	}
-	
+
 	return &ContextNotifier{
 		underlying:   underlying,
 		cwdBasename:  cwdBasename,
@@ -33,7 +33,7 @@ func NewContextNotifier(underlying Notifier, terminalInfo func() string) *Contex
 func (cn *ContextNotifier) Send(notification Notification) error {
 	// Add context to title
 	context := cn.cwdBasename
-	
+
 	// Get terminal title if available
 	if cn.terminalInfo != nil {
 		if title := cn.terminalInfo(); title != "" {
@@ -48,12 +48,12 @@ func (cn *ContextNotifier) Send(notification Notification) error {
 			}
 		}
 	}
-	
+
 	// Replace notification title with context if available
 	if context != "" {
 		notification.Title = "Claude Code: " + context
 	}
-	
+
 	// Forward to underlying notifier
 	return cn.underlying.Send(notification)
 }
@@ -62,23 +62,23 @@ func (cn *ContextNotifier) Send(notification Notification) error {
 func (cn *ContextNotifier) cleanTerminalTitle(title string) string {
 	// Common Claude icon patterns (various Unicode representations)
 	claudeIcons := []string{
-		"✅", // The icon you showed
-		"🤖", // Robot emoji sometimes used
-		"⚡", // Lightning bolt
-		"✨", // Sparkles
-		"🔮", // Crystal ball
-		"💫", // Dizzy symbol
+		"✅",  // The icon you showed
+		"🤖",  // Robot emoji sometimes used
+		"⚡",  // Lightning bolt
+		"✨",  // Sparkles
+		"🔮",  // Crystal ball
+		"💫",  // Dizzy symbol
 		"☁️", // Cloud
-		"🌟", // Star
+		"🌟",  // Star
 	}
-	
+
 	// Remove any of the Claude icons from the beginning
 	cleaned := title
 	for _, icon := range claudeIcons {
 		cleaned = strings.TrimPrefix(cleaned, icon)
-		cleaned = strings.TrimPrefix(cleaned, icon + " ")
+		cleaned = strings.TrimPrefix(cleaned, icon+" ")
 	}
-	
+
 	// Also try to remove any non-ASCII character at the beginning followed by space
 	// This catches other Unicode symbols we might not have listed
 	if len(cleaned) > 0 {
@@ -87,6 +87,6 @@ func (cn *ContextNotifier) cleanTerminalTitle(title string) string {
 			cleaned = string(runes[2:])
 		}
 	}
-	
+
 	return strings.TrimSpace(cleaned)
 }

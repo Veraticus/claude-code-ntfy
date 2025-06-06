@@ -22,10 +22,10 @@ func TestContextNotifier_AddsContext(t *testing.T) {
 	expectedCwd := filepath.Base(cwd)
 
 	tests := []struct {
-		name           string
-		terminalTitle  string
-		notification   Notification
-		expectedTitle  string
+		name          string
+		terminalTitle string
+		notification  Notification
+		expectedTitle string
 	}{
 		{
 			name:          "with terminal title and Claude icon",
@@ -86,7 +86,7 @@ func TestContextNotifier_AddsContext(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			mock := &mockNotifier{}
-			
+
 			// Create context notifier with terminal info function
 			cn := NewContextNotifier(mock, func() string {
 				return tt.terminalTitle

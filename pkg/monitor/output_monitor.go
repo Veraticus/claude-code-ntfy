@@ -70,15 +70,21 @@ func (om *OutputMonitor) HandleData(data []byte) {
 		om.sequenceDetector.DetectSequences(data, om.screenEventHandler)
 	}
 
+	// Check if this is a status indicator update (contains save/restore cursor sequences)
+	isStatusUpdate := om.isStatusIndicatorUpdate(data)
+
 	om.mu.Lock()
 	defer om.mu.Unlock()
 
-	// Update last output time
-	om.lastOutputTime = time.Now()
+	// Only update last output time and mark activity for non-status updates
+	if !isStatusUpdate {
+		// Update last output time
+		om.lastOutputTime = time.Now()
 
-	// Notify activity marker if we have one
-	if marker, ok := om.notifier.(notification.ActivityMarker); ok {
-		marker.MarkActivity()
+		// Notify activity marker if we have one
+		if marker, ok := om.notifier.(notification.ActivityMarker); ok {
+			marker.MarkActivity()
+		}
 	}
 
 	// Add data to line buffer
@@ -216,7 +222,14 @@ func (om *OutputMonitor) GetLastOutputTime() time.Time {
 
 // HandleScreenClear implements ScreenEventHandler
 func (om *OutputMonitor) HandleScreenClear() {
-	// Existing functionality - no changes needed
+	// Reset backstop notifier session on screen clear (indicates new prompt)
+	if resetter, ok := om.notifier.(interface{ ResetSession() }); ok {
+		resetter.ResetSession()
+	}
+
+	if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+		fmt.Fprintf(os.Stderr, "claude-code-ntfy: screen cleared - resetting session\n")
+	}
 }
 
 // HandleTitleChange implements ScreenEventHandler
@@ -268,4 +281,23 @@ func (om *OutputMonitor) GetTerminalTitle() string {
 		return om.terminalState.GetTitle()
 	}
 	return ""
+}
+
+// isStatusIndicatorUpdate checks if the data is likely a status indicator update
+func (om *OutputMonitor) isStatusIndicatorUpdate(data []byte) bool {
+	// Status indicator updates use specific ANSI sequences:
+	// - \0337 (DECSC) to save cursor position
+	// - \0338 (DECRC) to restore cursor position
+	// - \033[999;1H to move to bottom line
+	// These sequences together indicate a status update
+
+	// Check for save cursor sequence (DECSC)
+	if bytes.Contains(data, []byte("\0337")) {
+		// Also check for restore cursor sequence (DECRC) or bottom line positioning
+		if bytes.Contains(data, []byte("\0338")) || bytes.Contains(data, []byte("\033[999;1H")) {
+			return true
+		}
+	}
+
+	return false
 }

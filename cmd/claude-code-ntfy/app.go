@@ -56,7 +56,7 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 
 	// Create notification components
 	baseNotifier := notification.NewNtfyClient(cfg.NtfyServer, cfg.NtfyTopic)
-	
+
 	// Wrap with context notifier
 	contextNotifier := notification.NewContextNotifier(baseNotifier, func() string {
 		return outputMonitor.GetTerminalTitle()
@@ -74,7 +74,7 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 
 	// Connect status reporter to notification manager
 	deps.NotificationManager.SetStatusReporter(deps.StatusReporter)
-	
+
 	// Now set the notification manager on the output monitor
 	outputMonitor.SetNotifier(deps.NotificationManager)
 

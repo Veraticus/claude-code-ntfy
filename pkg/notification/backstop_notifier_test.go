@@ -88,29 +88,18 @@ func TestBackstopNotifier_SendsAfterTimeout(t *testing.T) {
 	}
 }
 
-func TestBackstopNotifier_SendsRepeatedly(t *testing.T) {
+func TestBackstopNotifier_SendsOnlyOncePerSession(t *testing.T) {
 	mock := &testNotifier{}
 	backstop := NewBackstopNotifier(mock, 50*time.Millisecond)
 	defer func() { _ = backstop.Close() }()
 
-	// Wait for at least 2 backstop notifications
-	deadline := time.Now().Add(500 * time.Millisecond)
-	for time.Now().Before(deadline) {
-		notifications := mock.getNotifications()
-		backstopCount := 0
-		for _, n := range notifications {
-			if n.Pattern == "backstop" {
-				backstopCount++
-			}
-		}
-		if backstopCount >= 2 {
-			// Success - we got at least 2 backstop notifications
-			return
-		}
-		time.Sleep(10 * time.Millisecond)
-	}
+	// Mark activity to start timer
+	backstop.MarkActivity()
 
-	// If we get here, we timed out waiting
+	// Wait for backstop notification
+	time.Sleep(100 * time.Millisecond)
+
+	// Should have exactly one backstop notification
 	notifications := mock.getNotifications()
 	backstopCount := 0
 	for _, n := range notifications {
@@ -118,7 +107,66 @@ func TestBackstopNotifier_SendsRepeatedly(t *testing.T) {
 			backstopCount++
 		}
 	}
-	t.Errorf("Expected at least 2 backstop notifications, got %d", backstopCount)
+	if backstopCount != 1 {
+		t.Errorf("Expected exactly 1 backstop notification, got %d", backstopCount)
+	}
+
+	// Wait longer to ensure no more backstop notifications
+	time.Sleep(150 * time.Millisecond)
+
+	// Should still have only one backstop notification
+	notifications = mock.getNotifications()
+	backstopCount = 0
+	for _, n := range notifications {
+		if n.Pattern == "backstop" {
+			backstopCount++
+		}
+	}
+	if backstopCount != 1 {
+		t.Errorf("Expected exactly 1 backstop notification after waiting, got %d", backstopCount)
+	}
+}
+
+func TestBackstopNotifier_ResetSession(t *testing.T) {
+	mock := &testNotifier{}
+	backstop := NewBackstopNotifier(mock, 50*time.Millisecond)
+	defer func() { _ = backstop.Close() }()
+
+	// Mark activity to start timer
+	backstop.MarkActivity()
+
+	// Wait for first backstop notification
+	time.Sleep(100 * time.Millisecond)
+
+	// Should have exactly one backstop notification
+	notifications := mock.getNotifications()
+	backstopCount := 0
+	for _, n := range notifications {
+		if n.Pattern == "backstop" {
+			backstopCount++
+		}
+	}
+	if backstopCount != 1 {
+		t.Errorf("Expected exactly 1 backstop notification, got %d", backstopCount)
+	}
+
+	// Reset session (simulating new prompt)
+	backstop.ResetSession()
+
+	// Wait for another backstop notification
+	time.Sleep(100 * time.Millisecond)
+
+	// Should now have two backstop notifications (one from each session)
+	notifications = mock.getNotifications()
+	backstopCount = 0
+	for _, n := range notifications {
+		if n.Pattern == "backstop" {
+			backstopCount++
+		}
+	}
+	if backstopCount != 2 {
+		t.Errorf("Expected 2 backstop notifications after reset, got %d", backstopCount)
+	}
 }
 
 func TestBackstopNotifier_NoTimeoutNoBackstop(t *testing.T) {
