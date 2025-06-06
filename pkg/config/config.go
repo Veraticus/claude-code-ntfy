@@ -26,6 +26,9 @@ type Config struct {
 	DefaultClaudeArgs    []string      `yaml:"default_claude_args"`
 	EnableFocusDetection bool          `yaml:"enable_focus_detection" env:"CLAUDE_NOTIFY_FOCUS_DETECTION"`
 
+	// Backstop notification - send notification after inactivity
+	BackstopTimeout time.Duration `yaml:"backstop_timeout" env:"CLAUDE_NOTIFY_BACKSTOP_TIMEOUT"`
+
 	// Claude path configuration
 	ClaudePath string `yaml:"claude_path" env:"CLAUDE_NOTIFY_CLAUDE_PATH"`
 
@@ -71,6 +74,7 @@ func DefaultConfig() *Config {
 		IdleTimeout:          2 * time.Minute,
 		StartupGracePeriod:   10 * time.Second,
 		EnableFocusDetection: true,
+		BackstopTimeout:      30 * time.Second,
 		Patterns: []Pattern{
 			{
 				Name:    "bell",

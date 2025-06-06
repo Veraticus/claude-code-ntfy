@@ -56,6 +56,13 @@ func (om *OutputMonitor) SetScreenEventHandler(handler interfaces.ScreenEventHan
 	om.screenEventHandler = handler
 }
 
+// SetNotifier sets the notifier
+func (om *OutputMonitor) SetNotifier(notifier notification.Notifier) {
+	om.mu.Lock()
+	defer om.mu.Unlock()
+	om.notifier = notifier
+}
+
 // HandleData processes raw output data
 func (om *OutputMonitor) HandleData(data []byte) {
 	// Detect terminal sequences before locking (non-blocking operation)
@@ -68,6 +75,11 @@ func (om *OutputMonitor) HandleData(data []byte) {
 
 	// Update last output time
 	om.lastOutputTime = time.Now()
+
+	// Notify activity marker if we have one
+	if marker, ok := om.notifier.(notification.ActivityMarker); ok {
+		marker.MarkActivity()
+	}
 
 	// Add data to line buffer
 	om.lineBuffer.Write(data)
@@ -117,14 +129,8 @@ func (om *OutputMonitor) processLine(line string) {
 	if om.shouldNotify() {
 		// Create notifications for each match
 		for _, match := range matches {
-			// Include terminal title in notification if available
-			title := "Claude Code Match: " + match.PatternName
-			if termTitle := om.terminalState.GetTitle(); termTitle != "" {
-				title = "Claude Code [" + termTitle + "]: " + match.PatternName
-			}
-
 			n := notification.Notification{
-				Title:   title,
+				Title:   "Claude Code: " + match.PatternName,
 				Message: line,
 				Time:    time.Now(),
 				Pattern: match.PatternName,
@@ -247,4 +253,19 @@ func (om *OutputMonitor) ResetStartTime() {
 	om.mu.Lock()
 	defer om.mu.Unlock()
 	om.startTime = time.Now()
+}
+
+// LastOutputTime returns the time of the last output
+func (om *OutputMonitor) LastOutputTime() time.Time {
+	om.mu.Lock()
+	defer om.mu.Unlock()
+	return om.lastOutputTime
+}
+
+// GetTerminalTitle returns the current terminal title
+func (om *OutputMonitor) GetTerminalTitle() string {
+	if om.terminalState != nil {
+		return om.terminalState.GetTitle()
+	}
+	return ""
 }

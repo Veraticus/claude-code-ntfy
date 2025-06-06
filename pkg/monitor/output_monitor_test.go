@@ -525,8 +525,8 @@ func TestOutputMonitorTerminalTitleInNotifications(t *testing.T) {
 		t.Fatalf("expected 1 notification, got %d", len(notifs))
 	}
 
-	// Verify title includes terminal title
-	expectedTitle := "Claude Code [My Task Title]: test"
+	// Verify title is simple (context is added by ContextNotifier now)
+	expectedTitle := "Claude Code: test"
 	if notifs[0].Title != expectedTitle {
 		t.Errorf("expected title %q, got %q", expectedTitle, notifs[0].Title)
 	}

@@ -49,18 +49,34 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 	// Start auto-refresh to keep the indicator visible despite Claude's screen clears
 	deps.StatusIndicator.StartAutoRefresh(deps.stopChan)
 
+	// Create pattern matcher and output monitor first (needed for terminal title)
+	deps.PatternMatcher = monitor.NewSimplePatternMatcher(cfg.Patterns)
+	outputMonitor := monitor.NewOutputMonitor(cfg, deps.PatternMatcher, deps.IdleDetector, nil) // nil notifier for now
+	deps.OutputMonitor = outputMonitor
+
 	// Create notification components
-	deps.Notifier = notification.NewNtfyClient(cfg.NtfyServer, cfg.NtfyTopic)
+	baseNotifier := notification.NewNtfyClient(cfg.NtfyServer, cfg.NtfyTopic)
+	
+	// Wrap with context notifier
+	contextNotifier := notification.NewContextNotifier(baseNotifier, func() string {
+		return outputMonitor.GetTerminalTitle()
+	})
+
+	// Wrap with backstop notifier if configured
+	var finalNotifier notification.Notifier = contextNotifier
+	if cfg.BackstopTimeout > 0 {
+		finalNotifier = notification.NewBackstopNotifier(contextNotifier, cfg.BackstopTimeout)
+	}
+	deps.Notifier = finalNotifier
+
 	deps.RateLimiter = notification.NewTokenBucketRateLimiter(cfg.RateLimit.MaxMessages, cfg.RateLimit.Window)
 	deps.NotificationManager = notification.NewManager(cfg, deps.Notifier, deps.RateLimiter)
 
 	// Connect status reporter to notification manager
 	deps.NotificationManager.SetStatusReporter(deps.StatusReporter)
-
-	// Create pattern matcher and output monitor
-	deps.PatternMatcher = monitor.NewSimplePatternMatcher(cfg.Patterns)
-	outputMonitor := monitor.NewOutputMonitor(cfg, deps.PatternMatcher, deps.IdleDetector, deps.NotificationManager)
-	deps.OutputMonitor = outputMonitor
+	
+	// Now set the notification manager on the output monitor
+	outputMonitor.SetNotifier(deps.NotificationManager)
 
 	// Connect status indicator to output monitor for screen clear detection
 	if statusEnabled {
@@ -93,6 +109,12 @@ func (d *Dependencies) Close() {
 	// Clean up status indicator
 	if d.StatusIndicator != nil {
 		_ = d.StatusIndicator.Clear() // Best effort
+	}
+
+	// Close notifiers
+	// First try to close as backstop notifier
+	if backstopNotifier, ok := d.Notifier.(*notification.BackstopNotifier); ok {
+		_ = backstopNotifier.Close()
 	}
 
 	if d.NotificationManager != nil {
