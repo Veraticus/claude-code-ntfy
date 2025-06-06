@@ -69,7 +69,7 @@ func DefaultConfig() *Config {
 	return &Config{
 		NtfyServer:           "https://ntfy.sh",
 		IdleTimeout:          2 * time.Minute,
-		StartupGracePeriod:   3 * time.Second,
+		StartupGracePeriod:   10 * time.Second,
 		EnableFocusDetection: true,
 		Patterns: []Pattern{
 			{

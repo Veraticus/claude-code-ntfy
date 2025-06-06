@@ -61,6 +61,11 @@ func (om *OutputMonitor) HandleData(data []byte) {
 	// Detect terminal sequences before locking (non-blocking operation)
 	if om.sequenceDetector != nil && om.screenEventHandler != nil {
 		om.sequenceDetector.DetectSequences(data, om.screenEventHandler)
+
+		// Mark activity in the status indicator if it supports it
+		if indicator, ok := om.screenEventHandler.(*status.Indicator); ok {
+			indicator.MarkActivity()
+		}
 	}
 
 	om.mu.Lock()

@@ -23,6 +23,13 @@ var statusInterferingSequences = [][]byte{
 	[]byte("\033[?47h"),   // Switch to alternate screen buffer
 	[]byte("\033[?1047h"), // Save cursor and switch to alternate screen
 	[]byte("\033[?1049h"), // Save cursor and switch to alternate screen (xterm)
+	[]byte("\033[?47l"),   // Switch back from alternate screen
+	[]byte("\033[?1047l"), // Restore cursor and switch from alternate screen
+	[]byte("\033[?1049l"), // Restore cursor and switch from alternate screen (xterm)
+	[]byte("\033D"),       // Index (scroll down)
+	[]byte("\033M"),       // Reverse index (scroll up)
+	[]byte("\033[S"),      // Scroll up (might affect bottom line)
+	[]byte("\033[T"),      // Scroll down (might affect bottom line)
 }
 
 // Focus event sequences

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strings"
 	"sync"
 	"syscall"
 
@@ -44,38 +45,38 @@ func (m *Manager) Start(command string, args []string) error {
 	}
 
 	// Set environment to prevent self-wrap
-	env := append(os.Environ(), "CLAUDE_CODE_NTFY_WRAPPED=1")
+	// Create a copy of the environment and add our variable
+	env := make([]string, 0, len(os.Environ())+1)
+	for _, e := range os.Environ() {
+		// Skip if already set to avoid duplication
+		if !strings.HasPrefix(e, "CLAUDE_CODE_NTFY_WRAPPED=") {
+			env = append(env, e)
+		}
+	}
+	env = append(env, "CLAUDE_CODE_NTFY_WRAPPED=1")
 
 	// Start the process with PTY
 	if err := m.ptyManager.Start(command, args, env); err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
 	}
 
-	// Enable focus reporting if configured and we have an output monitor
-	if m.config.EnableFocusDetection {
-		if outputMonitor, ok := m.outputHandler.(*monitor.OutputMonitor); ok {
-			if pty := m.ptyManager.GetPTY(); pty != nil {
-				// Send the escape sequence to enable focus reporting
-				focusEnable := monitor.EnableFocusReporting()
-				if _, err := pty.Write(focusEnable); err == nil {
-					outputMonitor.SetFocusReportingEnabled(true)
-					if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
-						fmt.Fprintf(os.Stderr, "claude-code-ntfy: enabled focus reporting\n")
-					}
-				}
-			}
-		}
-	}
-
 	// Start I/O copying with output handling
 	go func() {
 		var handler func([]byte)
+		enableFocus := false
 		if m.outputHandler != nil {
 			handler = func(data []byte) {
 				m.outputHandler.HandleData(data)
 			}
+			// Check if we should enable focus detection
+			if m.config.EnableFocusDetection {
+				if outputMonitor, ok := m.outputHandler.(*monitor.OutputMonitor); ok {
+					enableFocus = true
+					outputMonitor.SetFocusReportingEnabled(true)
+				}
+			}
 		}
-		if err := m.ptyManager.CopyIO(os.Stdin, os.Stdout, os.Stderr, handler); err != nil {
+		if err := m.ptyManager.CopyIO(os.Stdin, os.Stdout, os.Stderr, handler, enableFocus); err != nil {
 			fmt.Fprintf(os.Stderr, "claude-code-ntfy: I/O error: %v\n", err)
 		}
 	}()

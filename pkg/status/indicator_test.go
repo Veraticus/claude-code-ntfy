@@ -236,6 +236,14 @@ func TestIndicatorHandleScreenClear(t *testing.T) {
 			// Call HandleScreenClear
 			indicator.HandleScreenClear()
 
+			// For enabled indicators, HandleScreenClear now triggers async refresh
+			// So we need to manually draw to test the behavior
+			if tt.enabled {
+				indicator.mu.Lock()
+				_ = indicator.draw()
+				indicator.mu.Unlock()
+			}
+
 			output := buf.String()
 			hasOutput := len(output) > 0
 

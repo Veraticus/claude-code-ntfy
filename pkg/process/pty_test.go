@@ -70,7 +70,7 @@ func TestPTYManager_CopyIO(t *testing.T) {
 	// Start copying in background
 	done := make(chan error, 1)
 	go func() {
-		done <- ptyMgr.CopyIO(input, output, nil, handler)
+		done <- ptyMgr.CopyIO(input, output, nil, handler, false)
 	}()
 
 	// Give it time to process

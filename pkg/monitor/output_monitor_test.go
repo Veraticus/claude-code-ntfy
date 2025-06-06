@@ -499,33 +499,32 @@ func TestOutputMonitor_LineBuffering(t *testing.T) {
 	}
 }
 
-
 func TestOutputMonitorTerminalTitleInNotifications(t *testing.T) {
 	cfg := &config.Config{
 		ForceNotify: true, // Always notify for this test
 	}
-	
+
 	matcher := &MockPatternMatcher{
 		matches: []MatchResult{
 			{PatternName: "test", Text: "matched", Position: 0},
 		},
 	}
-	
+
 	notifier := &MockNotifier{}
 	monitor := NewOutputMonitor(cfg, matcher, nil, notifier)
-	
+
 	// Send terminal title change
 	monitor.HandleData([]byte("\033]0;My Task Title\007"))
-	
+
 	// Send a line that matches
 	monitor.HandleData([]byte("matched line\n"))
-	
+
 	// Check notification
 	notifs := notifier.GetNotifications()
 	if len(notifs) != 1 {
 		t.Fatalf("expected 1 notification, got %d", len(notifs))
 	}
-	
+
 	// Verify title includes terminal title
 	expectedTitle := "Claude Code [My Task Title]: test"
 	if notifs[0].Title != expectedTitle {
@@ -535,11 +534,11 @@ func TestOutputMonitorTerminalTitleInNotifications(t *testing.T) {
 
 func TestOutputMonitorFocusBasedNotificationSuppression(t *testing.T) {
 	tests := []struct {
-		name            string
-		focusReporting  bool
-		isFocused       bool
-		forceNotify     bool
-		expectNotify    bool
+		name           string
+		focusReporting bool
+		isFocused      bool
+		forceNotify    bool
+		expectNotify   bool
 	}{
 		{
 			name:           "focused terminal suppresses notifications",
@@ -570,22 +569,22 @@ func TestOutputMonitorFocusBasedNotificationSuppression(t *testing.T) {
 			expectNotify:   true,
 		},
 	}
-	
+
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			cfg := &config.Config{
 				ForceNotify: tt.forceNotify,
 			}
-			
+
 			matcher := &MockPatternMatcher{
 				matches: []MatchResult{
 					{PatternName: "test", Text: "matched", Position: 0},
 				},
 			}
-			
+
 			notifier := &MockNotifier{}
 			monitor := NewOutputMonitor(cfg, matcher, nil, notifier)
-			
+
 			// Set focus state
 			monitor.SetFocusReportingEnabled(tt.focusReporting)
 			if tt.isFocused {
@@ -593,10 +592,10 @@ func TestOutputMonitorFocusBasedNotificationSuppression(t *testing.T) {
 			} else {
 				monitor.HandleFocusOut()
 			}
-			
+
 			// Send a matching line
 			monitor.HandleData([]byte("matched line\n"))
-			
+
 			// Check notifications
 			notifs := notifier.GetNotifications()
 			if tt.expectNotify {
