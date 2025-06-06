@@ -9,6 +9,7 @@ import (
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
+	"github.com/Veraticus/claude-code-ntfy/pkg/monitor"
 )
 
 // Manager manages the wrapped Claude Code process
@@ -48,6 +49,22 @@ func (m *Manager) Start(command string, args []string) error {
 	// Start the process with PTY
 	if err := m.ptyManager.Start(command, args, env); err != nil {
 		return fmt.Errorf("failed to start process: %w", err)
+	}
+
+	// Enable focus reporting if configured and we have an output monitor
+	if m.config.EnableFocusDetection {
+		if outputMonitor, ok := m.outputHandler.(*monitor.OutputMonitor); ok {
+			if pty := m.ptyManager.GetPTY(); pty != nil {
+				// Send the escape sequence to enable focus reporting
+				focusEnable := monitor.EnableFocusReporting()
+				if _, err := pty.Write(focusEnable); err == nil {
+					outputMonitor.SetFocusReportingEnabled(true)
+					if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+						fmt.Fprintf(os.Stderr, "claude-code-ntfy: enabled focus reporting\n")
+					}
+				}
+			}
+		}
 	}
 
 	// Start I/O copying with output handling

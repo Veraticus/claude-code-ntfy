@@ -10,6 +10,7 @@ import (
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
 	"github.com/Veraticus/claude-code-ntfy/pkg/interfaces"
 	"github.com/Veraticus/claude-code-ntfy/pkg/notification"
+	"github.com/Veraticus/claude-code-ntfy/pkg/status"
 )
 
 // OutputMonitor monitors output for patterns and triggers notifications
@@ -27,12 +28,13 @@ type OutputMonitor struct {
 	// Terminal sequence detection
 	sequenceDetector   interfaces.TerminalSequenceDetector
 	screenEventHandler interfaces.ScreenEventHandler
+	terminalState      *TerminalState
 }
 
 // NewOutputMonitor creates a new output monitor
 func NewOutputMonitor(cfg *config.Config, pm PatternMatcher, idle interfaces.IdleDetector, notifier notification.Notifier) *OutputMonitor {
 	now := time.Now()
-	return &OutputMonitor{
+	om := &OutputMonitor{
 		config:           cfg,
 		patternMatcher:   pm,
 		idleDetector:     idle,
@@ -40,7 +42,11 @@ func NewOutputMonitor(cfg *config.Config, pm PatternMatcher, idle interfaces.Idl
 		lastOutputTime:   now,
 		startTime:        now,
 		sequenceDetector: NewTerminalSequenceDetector(),
+		terminalState:    NewTerminalState(),
 	}
+	// Set self as the screen event handler
+	om.screenEventHandler = om
+	return om
 }
 
 // SetScreenEventHandler sets the handler for screen events
@@ -111,8 +117,14 @@ func (om *OutputMonitor) processLine(line string) {
 	if om.shouldNotify() {
 		// Create notifications for each match
 		for _, match := range matches {
+			// Include terminal title in notification if available
+			title := "Claude Code Match: " + match.PatternName
+			if termTitle := om.terminalState.GetTitle(); termTitle != "" {
+				title = "Claude Code [" + termTitle + "]: " + match.PatternName
+			}
+
 			n := notification.Notification{
-				Title:   "Claude Code Match: " + match.PatternName,
+				Title:   title,
 				Message: line,
 				Time:    time.Now(),
 				Pattern: match.PatternName,
@@ -142,12 +154,25 @@ func (om *OutputMonitor) shouldNotify() bool {
 		return true
 	}
 
+	// Check if terminal is focused (if focus reporting is enabled)
+	if om.terminalState.IsFocusReportingEnabled() && om.terminalState.IsFocused() {
+		// Terminal is focused, don't notify
+		return false
+	}
+
 	// Check if user is idle
 	if om.idleDetector != nil {
 		idle, err := om.idleDetector.IsUserIdle(om.config.IdleTimeout)
-		if err == nil && !idle {
-			// User is active, don't notify
-			return false
+		if err == nil {
+			// Update idle state in status indicator if we're using it as screen event handler
+			if indicator, ok := om.screenEventHandler.(*status.Indicator); ok {
+				indicator.SetIdleState(idle)
+			}
+
+			if !idle {
+				// User is active, don't notify
+				return false
+			}
 		}
 	}
 
@@ -181,4 +206,38 @@ func (om *OutputMonitor) GetLastOutputTime() time.Time {
 	om.mu.Lock()
 	defer om.mu.Unlock()
 	return om.lastOutputTime
+}
+
+// HandleScreenClear implements ScreenEventHandler
+func (om *OutputMonitor) HandleScreenClear() {
+	// Existing functionality - no changes needed
+}
+
+// HandleTitleChange implements ScreenEventHandler
+func (om *OutputMonitor) HandleTitleChange(title string) {
+	om.terminalState.SetTitle(title)
+	if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+		fmt.Fprintf(os.Stderr, "claude-code-ntfy: terminal title changed to: %q\n", title)
+	}
+}
+
+// HandleFocusIn implements ScreenEventHandler
+func (om *OutputMonitor) HandleFocusIn() {
+	om.terminalState.SetFocused(true)
+	if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+		fmt.Fprintf(os.Stderr, "claude-code-ntfy: terminal gained focus\n")
+	}
+}
+
+// HandleFocusOut implements ScreenEventHandler
+func (om *OutputMonitor) HandleFocusOut() {
+	om.terminalState.SetFocused(false)
+	if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
+		fmt.Fprintf(os.Stderr, "claude-code-ntfy: terminal lost focus\n")
+	}
+}
+
+// SetFocusReportingEnabled sets whether focus reporting is enabled
+func (om *OutputMonitor) SetFocusReportingEnabled(enabled bool) {
+	om.terminalState.SetFocusReportingEnabled(enabled)
 }

@@ -214,12 +214,33 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 type mockScreenEventHandlerOM struct {
 	mu               sync.Mutex
 	screenClearCount int
+	titleChanges     []string
+	focusInCount     int
+	focusOutCount    int
 }
 
 func (m *mockScreenEventHandlerOM) HandleScreenClear() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	m.screenClearCount++
+}
+
+func (m *mockScreenEventHandlerOM) HandleTitleChange(title string) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.titleChanges = append(m.titleChanges, title)
+}
+
+func (m *mockScreenEventHandlerOM) HandleFocusIn() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.focusInCount++
+}
+
+func (m *mockScreenEventHandlerOM) HandleFocusOut() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	m.focusOutCount++
 }
 
 func TestOutputMonitorScreenEventHandling(t *testing.T) {
@@ -280,9 +301,9 @@ func TestOutputMonitorSetScreenEventHandler(t *testing.T) {
 	cfg := &config.Config{}
 	monitor := NewOutputMonitor(cfg, nil, nil, nil)
 
-	// Initially no handler
-	if monitor.screenEventHandler != nil {
-		t.Error("expected nil screen event handler initially")
+	// Initially set to self
+	if monitor.screenEventHandler != monitor {
+		t.Error("expected screen event handler to be set to self initially")
 	}
 
 	// Set handler
@@ -477,3 +498,120 @@ func TestOutputMonitor_LineBuffering(t *testing.T) {
 		})
 	}
 }
+
+
+func TestOutputMonitorTerminalTitleInNotifications(t *testing.T) {
+	cfg := &config.Config{
+		ForceNotify: true, // Always notify for this test
+	}
+	
+	matcher := &MockPatternMatcher{
+		matches: []MatchResult{
+			{PatternName: "test", Text: "matched", Position: 0},
+		},
+	}
+	
+	notifier := &MockNotifier{}
+	monitor := NewOutputMonitor(cfg, matcher, nil, notifier)
+	
+	// Send terminal title change
+	monitor.HandleData([]byte("\033]0;My Task Title\007"))
+	
+	// Send a line that matches
+	monitor.HandleData([]byte("matched line\n"))
+	
+	// Check notification
+	notifs := notifier.GetNotifications()
+	if len(notifs) != 1 {
+		t.Fatalf("expected 1 notification, got %d", len(notifs))
+	}
+	
+	// Verify title includes terminal title
+	expectedTitle := "Claude Code [My Task Title]: test"
+	if notifs[0].Title != expectedTitle {
+		t.Errorf("expected title %q, got %q", expectedTitle, notifs[0].Title)
+	}
+}
+
+func TestOutputMonitorFocusBasedNotificationSuppression(t *testing.T) {
+	tests := []struct {
+		name            string
+		focusReporting  bool
+		isFocused       bool
+		forceNotify     bool
+		expectNotify    bool
+	}{
+		{
+			name:           "focused terminal suppresses notifications",
+			focusReporting: true,
+			isFocused:      true,
+			forceNotify:    false,
+			expectNotify:   false,
+		},
+		{
+			name:           "unfocused terminal allows notifications",
+			focusReporting: true,
+			isFocused:      false,
+			forceNotify:    false,
+			expectNotify:   true,
+		},
+		{
+			name:           "force notify overrides focus",
+			focusReporting: true,
+			isFocused:      true,
+			forceNotify:    true,
+			expectNotify:   true,
+		},
+		{
+			name:           "focus reporting disabled ignores focus state",
+			focusReporting: false,
+			isFocused:      true,
+			forceNotify:    false,
+			expectNotify:   true,
+		},
+	}
+	
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := &config.Config{
+				ForceNotify: tt.forceNotify,
+			}
+			
+			matcher := &MockPatternMatcher{
+				matches: []MatchResult{
+					{PatternName: "test", Text: "matched", Position: 0},
+				},
+			}
+			
+			notifier := &MockNotifier{}
+			monitor := NewOutputMonitor(cfg, matcher, nil, notifier)
+			
+			// Set focus state
+			monitor.SetFocusReportingEnabled(tt.focusReporting)
+			if tt.isFocused {
+				monitor.HandleFocusIn()
+			} else {
+				monitor.HandleFocusOut()
+			}
+			
+			// Send a matching line
+			monitor.HandleData([]byte("matched line\n"))
+			
+			// Check notifications
+			notifs := notifier.GetNotifications()
+			if tt.expectNotify {
+				if len(notifs) != 1 {
+					t.Errorf("expected 1 notification, got %d", len(notifs))
+				}
+			} else {
+				if len(notifs) != 0 {
+					t.Errorf("expected no notifications, got %d", len(notifs))
+				}
+			}
+		})
+	}
+}
+
+// Note: Testing idle state updates in status indicator is not included here
+// because it depends on a type assertion to *status.Indicator which is an
+// implementation detail. The functionality is tested via integration tests.

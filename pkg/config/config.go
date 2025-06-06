@@ -19,11 +19,12 @@ type Config struct {
 	IdleTimeout time.Duration `yaml:"idle_timeout" env:"CLAUDE_NOTIFY_IDLE_TIMEOUT"`
 
 	// Behavior flags
-	Quiet              bool          `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
-	ForceNotify        bool          `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
-	StartupNotify      bool          `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
-	StartupGracePeriod time.Duration `yaml:"startup_grace_period" env:"CLAUDE_NOTIFY_STARTUP_GRACE"`
-	DefaultClaudeArgs  []string      `yaml:"default_claude_args"`
+	Quiet                bool          `yaml:"quiet" env:"CLAUDE_NOTIFY_QUIET"`
+	ForceNotify          bool          `yaml:"force_notify" env:"CLAUDE_NOTIFY_FORCE"`
+	StartupNotify        bool          `yaml:"startup_notify" env:"CLAUDE_NOTIFY_STARTUP"`
+	StartupGracePeriod   time.Duration `yaml:"startup_grace_period" env:"CLAUDE_NOTIFY_STARTUP_GRACE"`
+	DefaultClaudeArgs    []string      `yaml:"default_claude_args"`
+	EnableFocusDetection bool          `yaml:"enable_focus_detection" env:"CLAUDE_NOTIFY_FOCUS_DETECTION"`
 
 	// Claude path configuration
 	ClaudePath string `yaml:"claude_path" env:"CLAUDE_NOTIFY_CLAUDE_PATH"`
@@ -66,9 +67,10 @@ type RateLimitConfig struct {
 // DefaultConfig returns the default configuration
 func DefaultConfig() *Config {
 	return &Config{
-		NtfyServer:         "https://ntfy.sh",
-		IdleTimeout:        2 * time.Minute,
-		StartupGracePeriod: 3 * time.Second,
+		NtfyServer:           "https://ntfy.sh",
+		IdleTimeout:          2 * time.Minute,
+		StartupGracePeriod:   3 * time.Second,
+		EnableFocusDetection: true,
 		Patterns: []Pattern{
 			{
 				Name:    "bell",

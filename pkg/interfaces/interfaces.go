@@ -45,6 +45,12 @@ type StatusReporter interface {
 type ScreenEventHandler interface {
 	// HandleScreenClear is called when a screen clear sequence is detected
 	HandleScreenClear()
+	// HandleTitleChange is called when a terminal title change is detected
+	HandleTitleChange(title string)
+	// HandleFocusIn is called when terminal gains focus
+	HandleFocusIn()
+	// HandleFocusOut is called when terminal loses focus
+	HandleFocusOut()
 }
 
 // TerminalSequenceDetector detects terminal escape sequences in output.

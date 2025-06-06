@@ -3,6 +3,7 @@ package status
 import (
 	"fmt"
 	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -26,14 +27,20 @@ type Indicator struct {
 	lastSent time.Time
 	enabled  bool
 	writer   io.Writer
+
+	// Idle/focus state tracking
+	isIdle           bool
+	isFocused        bool
+	focusReportingOn bool
 }
 
 // NewIndicator creates a new status indicator
 func NewIndicator(writer io.Writer, enabled bool) *Indicator {
 	return &Indicator{
-		status:  StatusIdle,
-		writer:  writer,
-		enabled: enabled,
+		status:    StatusIdle,
+		writer:    writer,
+		enabled:   enabled,
+		isFocused: true, // Assume focused by default
 	}
 }
 
@@ -63,9 +70,25 @@ func (i *Indicator) draw() error {
 		return nil
 	}
 
-	// Use a simpler approach that's less likely to interfere:
-	// Save cursor position, move to bottom left, write status, restore
-	sequence := fmt.Sprintf("\033[s\033[999;1H\033[K%s\033[u", statusText)
+	// Use DEC save/restore cursor (\0337/\0338) instead of standard (\033[s/\033[u)
+	// because it's more widely supported and reliable across different terminals.
+	// Also, we need to handle the case where going to line 999 might cause scrolling.
+	//
+	// Strategy:
+	// 1. Save current cursor position and attributes with DECSC
+	// 2. Save scroll region state
+	// 3. Move to last line without scrolling
+	// 4. Write our status
+	// 5. Restore everything
+	//
+	// The sequence breaks down as:
+	// \0337 - DECSC: Save cursor position and attributes
+	// \033[r - Reset scroll region to full screen
+	// \033[999;1H - Move to line 999, column 1 (will be clamped to actual last line)
+	// \033[2K - Clear entire line
+	// %s - Our status text
+	// \0338 - DECRC: Restore cursor position and attributes
+	sequence := fmt.Sprintf("\0337\033[r\033[999;1H\033[2K%s\0338", statusText)
 
 	if _, err := fmt.Fprint(i.writer, sequence); err != nil {
 		return err
@@ -76,16 +99,43 @@ func (i *Indicator) draw() error {
 
 // getStatusText returns the appropriate status text with color
 func (i *Indicator) getStatusText() string {
+	var parts []string
+
+	// Add idle/focus state indicator
+	if i.focusReportingOn {
+		if i.isFocused {
+			parts = append(parts, "\033[36m◉\033[0m") // Cyan filled circle for focused
+		} else {
+			parts = append(parts, "\033[90m○\033[0m") // Gray empty circle for unfocused
+		}
+	}
+
+	if i.isIdle {
+		parts = append(parts, "\033[33mⓏ\033[0m") // Yellow Z for idle
+	} else {
+		parts = append(parts, "\033[32m▶\033[0m") // Green play for active
+	}
+
+	// Add ntfy status
+	ntfyStatus := ""
 	switch i.status {
 	case StatusSending:
-		return "\033[33m⟳ ntfy\033[0m" // Yellow spinning arrow
+		ntfyStatus = "\033[33m⟳ ntfy\033[0m" // Yellow spinning arrow
 	case StatusSuccess:
-		return "\033[32m✓ ntfy\033[0m" // Green checkmark
+		ntfyStatus = "\033[32m✓ ntfy\033[0m" // Green checkmark
 	case StatusFailed:
-		return "\033[31m✗ ntfy\033[0m" // Red X
-	default:
+		ntfyStatus = "\033[31m✗ ntfy\033[0m" // Red X
+	}
+
+	if ntfyStatus != "" {
+		parts = append(parts, ntfyStatus)
+	}
+
+	if len(parts) == 0 {
 		return ""
 	}
+
+	return strings.Join(parts, " ")
 }
 
 // Clear removes the status indicator
@@ -97,8 +147,8 @@ func (i *Indicator) Clear() error {
 		return nil
 	}
 
-	// Clear the status line
-	sequence := "\033[s\033[999;1H\033[K\033[u"
+	// Clear the status line using DEC save/restore
+	sequence := "\0337\033[999;1H\033[2K\0338"
 	if _, err := fmt.Fprint(i.writer, sequence); err != nil {
 		return err
 	}
@@ -109,8 +159,8 @@ func (i *Indicator) Clear() error {
 // StartAutoRefresh starts a goroutine that refreshes the display periodically
 func (i *Indicator) StartAutoRefresh(stopChan <-chan struct{}) {
 	go func() {
-		// Use a longer refresh interval to reduce interference
-		ticker := time.NewTicker(5 * time.Second)
+		// Use a shorter refresh interval since we have better detection now
+		ticker := time.NewTicker(2 * time.Second)
 		defer ticker.Stop()
 
 		for {
@@ -133,10 +183,48 @@ func (i *Indicator) HandleScreenClear() {
 	i.mu.Lock()
 	defer i.mu.Unlock()
 
-	// Only redraw if we have an active status
-	if i.enabled && i.status != StatusIdle {
+	// Always redraw when screen is cleared or interfered with
+	// Don't check status == StatusIdle, always redraw to maintain visibility
+	if i.enabled {
 		_ = i.draw() // Best effort
 	}
+}
+
+// HandleTitleChange implements ScreenEventHandler
+func (i *Indicator) HandleTitleChange(title string) {
+	// No-op for status indicator
+}
+
+// HandleFocusIn implements ScreenEventHandler
+func (i *Indicator) HandleFocusIn() {
+	i.mu.Lock()
+	i.isFocused = true
+	i.mu.Unlock()
+	_ = i.draw()
+}
+
+// HandleFocusOut implements ScreenEventHandler
+func (i *Indicator) HandleFocusOut() {
+	i.mu.Lock()
+	i.isFocused = false
+	i.mu.Unlock()
+	_ = i.draw()
+}
+
+// SetIdleState updates the idle state
+func (i *Indicator) SetIdleState(isIdle bool) {
+	i.mu.Lock()
+	i.isIdle = isIdle
+	i.mu.Unlock()
+	_ = i.draw()
+}
+
+// SetFocusReportingEnabled updates whether focus reporting is enabled
+func (i *Indicator) SetFocusReportingEnabled(enabled bool) {
+	i.mu.Lock()
+	i.focusReportingOn = enabled
+	i.mu.Unlock()
+	_ = i.draw()
 }
 
 // Ensure Indicator implements ScreenEventHandler

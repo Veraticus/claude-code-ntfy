@@ -65,6 +65,10 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 	// Connect status indicator to output monitor for screen clear detection
 	if statusEnabled {
 		outputMonitor.SetScreenEventHandler(deps.StatusIndicator)
+		// Enable focus reporting display if configured
+		if cfg.EnableFocusDetection {
+			deps.StatusIndicator.SetFocusReportingEnabled(true)
+		}
 	}
 
 	// Create process manager

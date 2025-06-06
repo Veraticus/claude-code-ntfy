@@ -114,10 +114,20 @@ func TestManager_Start(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			// Set environment
+			// Save current env and ensure clean state
+			oldEnv := os.Getenv("CLAUDE_CODE_NTFY_WRAPPED")
+			_ = os.Unsetenv("CLAUDE_CODE_NTFY_WRAPPED")
+			defer func() {
+				if oldEnv != "" {
+					_ = os.Setenv("CLAUDE_CODE_NTFY_WRAPPED", oldEnv)
+				} else {
+					_ = os.Unsetenv("CLAUDE_CODE_NTFY_WRAPPED")
+				}
+			}()
+
+			// Set environment for test
 			if tt.envWrapped != "" {
 				_ = os.Setenv("CLAUDE_CODE_NTFY_WRAPPED", tt.envWrapped)
-				defer func() { _ = os.Unsetenv("CLAUDE_CODE_NTFY_WRAPPED") }()
 			}
 
 			cfg := config.DefaultConfig()

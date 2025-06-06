@@ -169,8 +169,8 @@ func TestIndicatorAutoRefresh(t *testing.T) {
 	stopChan := make(chan struct{})
 	indicator.StartAutoRefresh(stopChan)
 
-	// Wait a bit for refresh
-	time.Sleep(1100 * time.Millisecond)
+	// Wait for at least 2 refresh cycles (2 seconds each)
+	time.Sleep(4100 * time.Millisecond)
 
 	// Stop refresh
 	close(stopChan)
@@ -183,8 +183,8 @@ func TestIndicatorAutoRefresh(t *testing.T) {
 	output := sb.buf.String()
 	sb.mu.Unlock()
 
-	// Count escape sequences for cursor save (at least 2 - initial draw and one refresh)
-	saveCount := strings.Count(output, "\033[s")
+	// Count escape sequences for DEC cursor save (at least 2 - initial draw and one refresh)
+	saveCount := strings.Count(output, "\0337")
 	if saveCount < 2 {
 		t.Errorf("expected at least 2 draws, got %d", saveCount)
 	}
@@ -211,10 +211,10 @@ func TestIndicatorHandleScreenClear(t *testing.T) {
 			expectRedraw: true,
 		},
 		{
-			name:         "no redraw when status is idle",
+			name:         "redraws even when status is idle",
 			status:       StatusIdle,
 			enabled:      true,
-			expectRedraw: false,
+			expectRedraw: true,
 		},
 		{
 			name:         "no redraw when disabled",

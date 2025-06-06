@@ -7,10 +7,25 @@ import (
 // mockScreenEventHandler tracks screen clear events
 type mockScreenEventHandler struct {
 	screenClearCount int
+	titleChanges     []string
+	focusInCount     int
+	focusOutCount    int
 }
 
 func (m *mockScreenEventHandler) HandleScreenClear() {
 	m.screenClearCount++
+}
+
+func (m *mockScreenEventHandler) HandleTitleChange(title string) {
+	m.titleChanges = append(m.titleChanges, title)
+}
+
+func (m *mockScreenEventHandler) HandleFocusIn() {
+	m.focusInCount++
+}
+
+func (m *mockScreenEventHandler) HandleFocusOut() {
+	m.focusOutCount++
 }
 
 func TestTerminalSequenceDetector(t *testing.T) {
@@ -58,6 +73,26 @@ func TestTerminalSequenceDetector(t *testing.T) {
 			},
 			expectedClears: 2, // Second chunk completes \033[2J, third chunk has \033[3J and \033[H
 		},
+		{
+			name:           "alternate screen buffer switch",
+			input:          [][]byte{[]byte("\033[?1049h")},
+			expectedClears: 1,
+		},
+		{
+			name:           "scrolling region reset",
+			input:          [][]byte{[]byte("\033[r")},
+			expectedClears: 1,
+		},
+		{
+			name:           "cursor position then line clear",
+			input:          [][]byte{[]byte("\033[25;1H\033[K")},
+			expectedClears: 1,
+		},
+		{
+			name:           "clear from cursor to end of screen",
+			input:          [][]byte{[]byte("\033[0J")},
+			expectedClears: 1,
+		},
 	}
 
 	for _, tt := range tests {
@@ -72,6 +107,119 @@ func TestTerminalSequenceDetector(t *testing.T) {
 
 			if handler.screenClearCount != tt.expectedClears {
 				t.Errorf("expected %d screen clears, got %d", tt.expectedClears, handler.screenClearCount)
+			}
+		})
+	}
+}
+
+func TestTerminalSequenceDetectorStatusInterference(t *testing.T) {
+	tests := []struct {
+		name           string
+		input          [][]byte
+		expectedClears int
+	}{
+		{
+			name:           "alternate screen buffer",
+			input:          [][]byte{[]byte("\033[?47h")},
+			expectedClears: 1,
+		},
+		{
+			name:           "scrolling region reset",
+			input:          [][]byte{[]byte("\033[r")},
+			expectedClears: 1,
+		},
+		{
+			name:           "cursor to bottom and clear",
+			input:          [][]byte{[]byte("\033[999;1H\033[K")},
+			expectedClears: 1,
+		},
+		{
+			name:           "erase display from cursor",
+			input:          [][]byte{[]byte("\033[0J")},
+			expectedClears: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detector := NewTerminalSequenceDetector()
+			handler := &mockScreenEventHandler{}
+
+			for _, chunk := range tt.input {
+				detector.DetectSequences(chunk, handler)
+			}
+
+			if handler.screenClearCount != tt.expectedClears {
+				t.Errorf("expected %d screen clears, got %d", tt.expectedClears, handler.screenClearCount)
+			}
+		})
+	}
+}
+
+func TestTerminalSequenceDetectorTitleAndFocus(t *testing.T) {
+	tests := []struct {
+		name             string
+		input            [][]byte
+		expectedTitles   []string
+		expectedFocusIn  int
+		expectedFocusOut int
+	}{
+		{
+			name:           "terminal title change",
+			input:          [][]byte{[]byte("\033]0;My Title\007")},
+			expectedTitles: []string{"My Title"},
+		},
+		{
+			name:           "terminal title with ST terminator",
+			input:          [][]byte{[]byte("\033]2;Another Title\033\\")},
+			expectedTitles: []string{"Another Title"},
+		},
+		{
+			name:             "focus in event",
+			input:            [][]byte{[]byte("\033[I")},
+			expectedFocusIn:  1,
+			expectedFocusOut: 0,
+		},
+		{
+			name:             "focus out event",
+			input:            [][]byte{[]byte("\033[O")},
+			expectedFocusIn:  0,
+			expectedFocusOut: 1,
+		},
+		{
+			name:             "mixed events",
+			input:            [][]byte{[]byte("\033]0;Test\007\033[I\033[O")},
+			expectedTitles:   []string{"Test"},
+			expectedFocusIn:  1,
+			expectedFocusOut: 1,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			detector := NewTerminalSequenceDetector()
+			handler := &mockScreenEventHandler{}
+
+			for _, chunk := range tt.input {
+				detector.DetectSequences(chunk, handler)
+			}
+
+			if len(handler.titleChanges) != len(tt.expectedTitles) {
+				t.Errorf("expected %d title changes, got %d", len(tt.expectedTitles), len(handler.titleChanges))
+			}
+
+			for i, title := range tt.expectedTitles {
+				if i < len(handler.titleChanges) && handler.titleChanges[i] != title {
+					t.Errorf("expected title %q, got %q", title, handler.titleChanges[i])
+				}
+			}
+
+			if handler.focusInCount != tt.expectedFocusIn {
+				t.Errorf("expected %d focus in events, got %d", tt.expectedFocusIn, handler.focusInCount)
+			}
+
+			if handler.focusOutCount != tt.expectedFocusOut {
+				t.Errorf("expected %d focus out events, got %d", tt.expectedFocusOut, handler.focusOutCount)
 			}
 		})
 	}
