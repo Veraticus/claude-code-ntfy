@@ -1,5 +1,5 @@
 # Binaries
-claude-code-ntfy
+/claude-code-ntfy
 
 # Test binary, built with `go test -c`
 *.test

@@ -19,6 +19,20 @@
           
           vendorHash = "sha256-T0KmN00q6lGo8LHKiBdmSveSMSLykCWi1pxCqkqE1Rs=";
           
+          preBuild = ''
+            echo "=== Build environment debug ==="
+            echo "pwd: $(pwd)"
+            echo "GOOS: $GOOS"
+            echo "GOARCH: $GOARCH"
+            echo "Contents of cmd/claude-code-ntfy/:"
+            ls -la cmd/claude-code-ntfy/
+            echo "Go version:"
+            go version
+            echo "Go env GOOS/GOARCH:"
+            go env GOOS GOARCH
+            echo "=== End debug ==="
+          '';
+          
           ldflags = [
             "-s"
             "-w"
