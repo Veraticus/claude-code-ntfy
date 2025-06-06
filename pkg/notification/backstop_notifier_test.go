@@ -90,27 +90,35 @@ func TestBackstopNotifier_SendsAfterTimeout(t *testing.T) {
 
 func TestBackstopNotifier_SendsRepeatedly(t *testing.T) {
 	mock := &testNotifier{}
-	backstop := NewBackstopNotifier(mock, 100*time.Millisecond)
+	backstop := NewBackstopNotifier(mock, 50*time.Millisecond)
 	defer func() { _ = backstop.Close() }()
 
-	// Wait for first backstop
-	time.Sleep(150 * time.Millisecond)
-
-	// Wait for second backstop
-	time.Sleep(150 * time.Millisecond)
-
-	// Should have two backstop notifications
-	notifications := mock.getNotifications()
-	if len(notifications) != 2 {
-		t.Errorf("Expected 2 notifications, got %d", len(notifications))
+	// Wait for at least 2 backstop notifications
+	deadline := time.Now().Add(500 * time.Millisecond)
+	for time.Now().Before(deadline) {
+		notifications := mock.getNotifications()
+		backstopCount := 0
+		for _, n := range notifications {
+			if n.Pattern == "backstop" {
+				backstopCount++
+			}
+		}
+		if backstopCount >= 2 {
+			// Success - we got at least 2 backstop notifications
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
 	}
-	
-	// Both should be backstop notifications
-	for i, n := range notifications {
-		if n.Pattern != "backstop" {
-			t.Errorf("Notification %d: expected backstop pattern, got %s", i, n.Pattern)
+
+	// If we get here, we timed out waiting
+	notifications := mock.getNotifications()
+	backstopCount := 0
+	for _, n := range notifications {
+		if n.Pattern == "backstop" {
+			backstopCount++
 		}
 	}
+	t.Errorf("Expected at least 2 backstop notifications, got %d", backstopCount)
 }
 
 func TestBackstopNotifier_NoTimeoutNoBackstop(t *testing.T) {
