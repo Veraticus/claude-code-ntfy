@@ -33,7 +33,7 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 
 	// Create output monitor with stdout notifier temporarily
 	outputMonitor := monitor.NewOutputMonitor(cfg, notification.NewStdoutNotifier())
-	
+
 	// Wrap with context notifier
 	contextNotifier := notification.NewContextNotifier(baseNotifier, func() string {
 		return outputMonitor.GetTerminalTitle()

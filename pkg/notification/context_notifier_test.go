@@ -6,10 +6,10 @@ import (
 
 func TestContextNotifier(t *testing.T) {
 	tests := []struct {
-		name           string
-		terminalTitle  string
-		notification   Notification
-		expectedTitle  string
+		name          string
+		terminalTitle string
+		notification  Notification
+		expectedTitle string
 	}{
 		{
 			name:          "adds cwd and terminal title",
@@ -76,7 +76,7 @@ func TestContextNotifier(t *testing.T) {
 
 			// The CWD basename will be "claude-code-ntfy" in tests
 			// (based on the current directory structure)
-			
+
 			// Send notification
 			err := cn.Send(tt.notification)
 			if err != nil {
@@ -94,7 +94,7 @@ func TestContextNotifier(t *testing.T) {
 
 func TestCleanTerminalTitle(t *testing.T) {
 	cn := &ContextNotifier{}
-	
+
 	tests := []struct {
 		name     string
 		input    string
@@ -168,4 +168,3 @@ func (m *mockNotifier) Send(n Notification) error {
 	}
 	return nil
 }
-

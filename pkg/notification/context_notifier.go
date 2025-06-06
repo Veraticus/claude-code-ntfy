@@ -83,19 +83,19 @@ func (cn *ContextNotifier) cleanTerminalTitle(title string) string {
 	// This handles cases like "ÓÇ∂‚ú≥ Test Coverage"
 	runes := []rune(cleaned)
 	startIdx := 0
-	
+
 	// Skip any non-printable or garbage characters at the start
 	for startIdx < len(runes) {
 		r := runes[startIdx]
 		// Keep ASCII letters, numbers, and common punctuation
-		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') || 
-		   (r >= '0' && r <= '9') || r == ' ' || r == '-' || 
-		   r == '_' || r == '.' || r == '/' || r == '[' || r == ']' {
+		if (r >= 'A' && r <= 'Z') || (r >= 'a' && r <= 'z') ||
+			(r >= '0' && r <= '9') || r == ' ' || r == '-' ||
+			r == '_' || r == '.' || r == '/' || r == '[' || r == ']' {
 			break
 		}
 		startIdx++
 	}
-	
+
 	if startIdx < len(runes) {
 		cleaned = string(runes[startIdx:])
 	} else {
