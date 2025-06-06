@@ -31,15 +31,23 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 	// Create notification components
 	baseNotifier := notification.NewNtfyClient(cfg.NtfyServer, cfg.NtfyTopic)
 
+	// Create output monitor with stdout notifier temporarily
+	outputMonitor := monitor.NewOutputMonitor(cfg, notification.NewStdoutNotifier())
+	
+	// Wrap with context notifier
+	contextNotifier := notification.NewContextNotifier(baseNotifier, func() string {
+		return outputMonitor.GetTerminalTitle()
+	})
+
 	// Wrap with backstop notifier if configured
-	var finalNotifier notification.Notifier = baseNotifier
+	var finalNotifier notification.Notifier = contextNotifier
 	if cfg.BackstopTimeout > 0 {
-		finalNotifier = notification.NewBackstopNotifier(baseNotifier, cfg.BackstopTimeout)
+		finalNotifier = notification.NewBackstopNotifier(contextNotifier, cfg.BackstopTimeout)
 	}
 	deps.Notifier = finalNotifier
 
-	// Create output monitor with the notifier
-	outputMonitor := monitor.NewOutputMonitor(cfg, deps.Notifier)
+	// Update the output monitor with the final notifier
+	outputMonitor.SetNotifier(deps.Notifier)
 	deps.OutputMonitor = outputMonitor
 
 	// Create input handler that disables backstop timer
