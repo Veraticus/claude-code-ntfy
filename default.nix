@@ -14,11 +14,11 @@ buildGoModule rec {
   source = if src != null then src else fetchFromGitHub {
     owner = "Veraticus";
     repo = "claude-code-ntfy";
-    rev = "ba76a6ce3b0bce2b17e5b9d528b8f4f80ec93cf8";
-    sha256 = "sha256-AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA=";
+    rev = "d2af69b80067a16c922fb82e8452c625086d498c";
+    sha256 = "sha256-0lp8dipqi5w0gjyydl7g5iy9lm9pjhfm3281a75nqrspmxrjxd9a";
   };
 
-  vendorHash = "sha256-AaNSvDh5Wqa3FQBY1THwHaW1Bd0zCE3w8lrt9IhA2mI=";
+  vendorHash = "sha256-0zjjlfndxqclkhdwkc3z7clz42i3ir160qgw2py070qzjy37y87p";
 
   ldflags = [
     "-s"
