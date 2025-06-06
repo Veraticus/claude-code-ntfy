@@ -14,8 +14,8 @@ buildGoModule rec {
   source = if src != null then src else fetchFromGitHub {
     owner = "Veraticus";
     repo = "claude-code-ntfy";
-    rev = "5f43f90ed5188d6a65b5458c5350c4be5db3e27c";
-    sha256 = "sha256-06ag29y2b64mwjg6l5ribk4hi7knvmrzw7c2x1z2xci8czjq01bj";
+    rev = "01e4dc081d7f69a2501fae98d6c3da536c257beb";
+    sha256 = "sha256-14idhslwcg143ybz6x2j5rkmncpi7qd1ycgkh15vl56d3q7d9kpa";
   };
 
   vendorHash = "sha256-0zjjlfndxqclkhdwkc3z7clz42i3ir160qgw2py070qzjy37y87p";
