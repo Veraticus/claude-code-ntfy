@@ -55,6 +55,10 @@ setup-hooks:
 install-tools:
 	@bash scripts/install-tools.sh
 
+update-nix:
+	@echo "Updating all Nix hashes to current HEAD..."
+	@./scripts/update-nix-hashes.sh $(ARGS)
+
 # Help
 help:
 	@echo "Usage: make [target]"
