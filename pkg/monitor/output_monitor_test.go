@@ -74,6 +74,106 @@ func (m *MockBackstopNotifier) DisableBackstopTimer() {
 	m.backstopDisabled = true
 }
 
+func TestContainsVisibleContent(t *testing.T) {
+	tests := []struct {
+		name     string
+		data     []byte
+		expected bool
+	}{
+		// Visible content cases
+		{
+			name:     "regular text",
+			data:     []byte("Hello world"),
+			expected: true,
+		},
+		{
+			name:     "text with newline",
+			data:     []byte("Hello\nworld"),
+			expected: true,
+		},
+		{
+			name:     "just newline",
+			data:     []byte("\n"),
+			expected: true,
+		},
+		{
+			name:     "tab character",
+			data:     []byte("\t"),
+			expected: true,
+		},
+		{
+			name:     "carriage return",
+			data:     []byte("\r"),
+			expected: true,
+		},
+		{
+			name:     "unicode text",
+			data:     []byte("Hello 世界"),
+			expected: true,
+		},
+		{
+			name:     "mixed visible and escape sequences",
+			data:     []byte("\x1b[31mRed text\x1b[0m"),
+			expected: true,
+		},
+		// Non-visible content cases
+		{
+			name:     "just escape sequence",
+			data:     []byte("\x1b[31m"),
+			expected: false,
+		},
+		{
+			name:     "cursor movement",
+			data:     []byte("\x1b[1A"),
+			expected: false,
+		},
+		{
+			name:     "screen clear",
+			data:     []byte("\x1b[2J"),
+			expected: false,
+		},
+		{
+			name:     "terminal title",
+			data:     []byte("\x1b]0;Title\x07"),
+			expected: false,
+		},
+		{
+			name:     "multiple escape sequences",
+			data:     []byte("\x1b[?25l\x1b[?25h"),
+			expected: false,
+		},
+		{
+			name:     "CSI sequence",
+			data:     []byte("\x9b31m"),
+			expected: false,
+		},
+		{
+			name:     "control characters only",
+			data:     []byte("\x01\x02\x03"),
+			expected: false,
+		},
+		{
+			name:     "empty data",
+			data:     []byte{},
+			expected: false,
+		},
+		{
+			name:     "bell character only",
+			data:     []byte("\x07"),
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := containsVisibleContent(tt.data)
+			if result != tt.expected {
+				t.Errorf("containsVisibleContent(%q) = %v, want %v", tt.data, result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestOutputMonitor_HandleData(t *testing.T) {
 	tests := []struct {
 		name               string
@@ -87,7 +187,7 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 			expectActivity: true,
 		},
 		{
-			name:               "bell character disables backstop",
+			name:               "bell character with text disables backstop",
 			data:               []byte("Bell: \x07\n"),
 			expectActivity:     true,
 			expectBellDetected: true,
@@ -101,6 +201,21 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 			name:           "partial line buffered",
 			data:           []byte("Partial line without newline"),
 			expectActivity: true,
+		},
+		{
+			name:           "escape sequence only - no activity",
+			data:           []byte("\x1b[31m\x1b[0m"),
+			expectActivity: false,
+		},
+		{
+			name:           "cursor movement only - no activity",
+			data:           []byte("\x1b[1A\x1b[1B"),
+			expectActivity: false,
+		},
+		{
+			name:           "screen clear only - no activity",
+			data:           []byte("\x1b[2J"),
+			expectActivity: false,
 		},
 	}
 
@@ -117,11 +232,11 @@ func TestOutputMonitor_HandleData(t *testing.T) {
 			om.HandleData(tt.data)
 
 			// Check activity was marked
-			if tt.expectActivity {
-				activityCount := mockNotifier.GetActivityCount()
-				if activityCount == 0 {
-					t.Error("expected activity to be marked")
-				}
+			activityCount := mockNotifier.GetActivityCount()
+			if tt.expectActivity && activityCount == 0 {
+				t.Error("expected activity to be marked")
+			} else if !tt.expectActivity && activityCount > 0 {
+				t.Errorf("expected no activity to be marked, but got %d", activityCount)
 			}
 
 			// Check bell detection

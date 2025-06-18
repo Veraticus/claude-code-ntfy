@@ -15,20 +15,23 @@ type BackstopNotifier struct {
 	underlying Notifier
 	timeout    time.Duration
 
-	mu                   sync.Mutex
-	lastNotificationTime time.Time
-	lastActivityTime     time.Time
-	timer                *time.Timer
-	backstopSent         bool // Track if backstop notification was sent for current session
-	backstopDisabled     bool // Track if backstop timer has been disabled by user input
+	mu                                       sync.Mutex
+	lastNotificationTime                     time.Time
+	lastActivityTime                         time.Time
+	lastUserInteraction                      time.Time
+	timer                                    *time.Timer
+	backstopSent                             bool // Track if backstop notification was sent for current session
+	backstopDisabled                         bool // Track if backstop timer has been disabled by user input
+	idleNotificationSentSinceLastInteraction bool // Track if we've sent an idle notification since last user interaction
 }
 
 // NewBackstopNotifier creates a new backstop notifier
 func NewBackstopNotifier(underlying Notifier, timeout time.Duration) *BackstopNotifier {
 	bn := &BackstopNotifier{
-		underlying:       underlying,
-		timeout:          timeout,
-		lastActivityTime: time.Now(),
+		underlying:          underlying,
+		timeout:             timeout,
+		lastActivityTime:    time.Now(),
+		lastUserInteraction: time.Now(),
 	}
 
 	if timeout > 0 {
@@ -94,6 +97,11 @@ func (bn *BackstopNotifier) sendBackstopNotification() {
 		return
 	}
 
+	// Check if we've already sent an idle notification since the last user interaction
+	if bn.idleNotificationSentSinceLastInteraction {
+		return
+	}
+
 	// Send backstop notification
 	notification := Notification{
 		Title:   "Claude needs attention",
@@ -104,6 +112,7 @@ func (bn *BackstopNotifier) sendBackstopNotification() {
 
 	bn.lastNotificationTime = time.Now()
 	bn.backstopSent = true
+	bn.idleNotificationSentSinceLastInteraction = true
 
 	// Send via underlying notifier
 	_ = bn.underlying.Send(notification)
@@ -142,6 +151,8 @@ func (bn *BackstopNotifier) ResetSession() {
 	bn.backstopSent = false
 	bn.backstopDisabled = false
 	bn.lastActivityTime = time.Now()
+	// Reset idle notification flag since this is a new session that warrants attention
+	bn.idleNotificationSentSinceLastInteraction = false
 
 	// Reset the timer
 	if bn.timer != nil {
@@ -159,6 +170,8 @@ func (bn *BackstopNotifier) DisableBackstopTimer() {
 	defer bn.mu.Unlock()
 
 	bn.backstopDisabled = true
+	bn.lastUserInteraction = time.Now()
+	bn.idleNotificationSentSinceLastInteraction = false
 
 	// Stop the timer
 	if bn.timer != nil {

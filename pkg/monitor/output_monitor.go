@@ -56,6 +56,84 @@ func (om *OutputMonitor) SetNotifier(notifier notification.Notifier) {
 	om.notifier = notifier
 }
 
+// containsVisibleContent checks if the data contains any visible characters
+// Visible characters include printable ASCII, newlines, tabs, and Unicode text
+// Returns false for data containing only ANSI escape sequences or control characters
+func containsVisibleContent(data []byte) bool {
+	i := 0
+	for i < len(data) {
+		b := data[i]
+
+		// Skip ANSI escape sequences
+		if b == 0x1B { // ESC
+			i++
+			if i < len(data) {
+				next := data[i]
+				if next == '[' { // CSI sequence
+					i++
+					// Skip until we find the terminator (0x40-0x7E)
+					for i < len(data) {
+						c := data[i]
+						i++
+						if c >= 0x40 && c <= 0x7E {
+							break
+						}
+					}
+					continue
+				} else if next == ']' { // OSC sequence
+					i++
+					// Skip until we find BEL or ST terminator
+					for i < len(data) {
+						c := data[i]
+						i++
+						if c == 0x07 { // BEL
+							break
+						}
+						// Check for ST (ESC \)
+						if c == 0x1B && i < len(data) && data[i] == '\\' {
+							i++
+							break
+						}
+					}
+					continue
+				} else if next == '(' || next == ')' { // Character set sequences
+					i++
+					if i < len(data) {
+						i++ // Skip the character set designation
+					}
+					continue
+				}
+			}
+		} else if b == 0x9B { // CSI (8-bit)
+			i++
+			// Skip until we find the terminator (0x40-0x7E)
+			for i < len(data) {
+				c := data[i]
+				i++
+				if c >= 0x40 && c <= 0x7E {
+					break
+				}
+			}
+			continue
+		}
+
+		// Check for visible characters
+		if b == '\n' || b == '\r' || b == '\t' { // Newline, carriage return, tab
+			return true
+		}
+		if b >= 32 && b <= 126 { // Printable ASCII
+			return true
+		}
+		if b >= 128 { // Extended ASCII/Unicode (simplified check)
+			return true
+		}
+
+		i++
+	}
+
+	return false
+}
+
 // HandleData processes raw output data
 func (om *OutputMonitor) HandleData(data []byte) {
 	// Detect terminal sequences before locking (non-blocking operation)
@@ -69,9 +147,11 @@ func (om *OutputMonitor) HandleData(data []byte) {
 	// Always update last output time when we receive data
 	om.lastOutputTime = time.Now()
 
-	// Mark activity for backstop timer
-	if marker, ok := om.notifier.(notification.ActivityMarker); ok {
-		marker.MarkActivity()
+	// Mark activity for backstop timer only if visible content is detected
+	if containsVisibleContent(data) {
+		if marker, ok := om.notifier.(notification.ActivityMarker); ok {
+			marker.MarkActivity()
+		}
 	}
 
 	// Add data to line buffer for processing
