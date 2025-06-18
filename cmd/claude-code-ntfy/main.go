@@ -1,7 +1,6 @@
 package main
 
 import (
-	"flag"
 	"fmt"
 	"os"
 	"os/exec"
@@ -10,6 +9,7 @@ import (
 	"syscall"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
+	flag "github.com/spf13/pflag"
 )
 
 func main() {
@@ -19,6 +19,9 @@ func main() {
 		quiet      bool
 		help       bool
 	)
+
+	// Enable unknown flags to be passed through to Claude
+	flag.CommandLine.ParseErrorsWhitelist.UnknownFlags = true
 
 	flag.StringVar(&configPath, "config", "", "Path to config file")
 	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications")
@@ -143,6 +146,8 @@ func printUsage() {
 	fmt.Println()
 	fmt.Println("Options:")
 	flag.PrintDefaults()
+	fmt.Println()
+	fmt.Println("All unknown flags are passed through to Claude Code")
 	fmt.Println()
 	fmt.Println("Environment Variables:")
 	fmt.Println("  CLAUDE_NOTIFY_TOPIC       Ntfy topic for notifications")
