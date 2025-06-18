@@ -53,20 +53,39 @@ func main() {
 		i++
 	}
 
+	// Check for help flag early in original args
+	for _, arg := range os.Args[1:] {
+		if arg == "-help" || arg == "--help" || arg == "-h" {
+			// Only show our help if no claude args were provided
+			hasClaudeArgs := false
+			for _, a := range os.Args[1:] {
+				if a != "-help" && a != "--help" && a != "-h" && a != "--quiet" && a != "-quiet" &&
+					!strings.HasPrefix(a, "--config") && !strings.HasPrefix(a, "-config") {
+					hasClaudeArgs = true
+					break
+				}
+			}
+			if !hasClaudeArgs {
+				printUsage()
+				os.Exit(0)
+			}
+		}
+	}
+
 	// Define our flags first
+	flag.CommandLine.SetOutput(os.Stderr)
 	flag.StringVar(&configPath, "config", "", "Path to config file")
 	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications")
 	flag.BoolVar(&help, "help", false, "Show help message")
 
 	// Parse only our flags
 	if err := flag.CommandLine.Parse(ourArgs); err != nil {
-		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
-		os.Exit(1)
-	}
-
-	// Only show our help if --help was provided without other Claude args
-	if help && len(claudeArgs) == 0 {
-		printUsage()
+		// Don't print error for help flag
+		if err != flag.ErrHelp {
+			fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+			os.Exit(1)
+		}
+		// For help error, we've already shown our custom help above
 		os.Exit(0)
 	}
 
@@ -187,7 +206,9 @@ func printUsage() {
 	fmt.Println("Usage: claude-code-ntfy [OPTIONS] [CLAUDE_ARGS...]")
 	fmt.Println()
 	fmt.Println("Options:")
-	flag.PrintDefaults()
+	fmt.Println("      --config string   Path to config file")
+	fmt.Println("      --help            Show help message")
+	fmt.Println("      --quiet           Disable all notifications")
 	fmt.Println()
 	fmt.Println("All unknown flags are passed through to Claude Code")
 	fmt.Println()
