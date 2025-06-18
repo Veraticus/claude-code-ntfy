@@ -17,7 +17,7 @@
           
           src = ./.;
           
-          vendorHash = "sha256-T0KmN00q6lGo8LHKiBdmSveSMSLykCWi1pxCqkqE1Rs=";
+          vendorHash = "sha256-zuRotWJhcy4zOrq/kTy98uHlsi8chsydDBRrTIzJo3Q=";
           
           preBuild = ''
             echo "=== Build environment debug ==="
