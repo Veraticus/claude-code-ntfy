@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 
 	"github.com/Veraticus/claude-code-ntfy/pkg/config"
@@ -13,23 +14,55 @@ import (
 )
 
 func main() {
-	// Parse command line flags
+	// Parse our flags and separate Claude's flags
 	var (
 		configPath string
 		quiet      bool
 		help       bool
 	)
 
-	// Enable unknown flags to be passed through to Claude
-	flag.CommandLine.ParseErrorsWhitelist.UnknownFlags = true
+	// Manually parse arguments to separate our flags from Claude's
+	ourArgs := []string{}
+	claudeArgs := []string{}
+	
+	i := 1 // Skip program name
+	for i < len(os.Args) {
+		arg := os.Args[i]
+		
+		// Check if it's one of our flags
+		switch arg {
+		case "--config", "-config":
+			ourArgs = append(ourArgs, arg)
+			if i+1 < len(os.Args) && !strings.HasPrefix(os.Args[i+1], "-") {
+				ourArgs = append(ourArgs, os.Args[i+1])
+				i++
+			}
+		case "--quiet", "-quiet":
+			ourArgs = append(ourArgs, arg)
+		case "--help", "-help":
+			ourArgs = append(ourArgs, arg)
+		default:
+			// Handle --flag=value format for our flags
+			if strings.HasPrefix(arg, "--config=") || strings.HasPrefix(arg, "-config=") {
+				ourArgs = append(ourArgs, arg)
+			} else {
+				// Everything else goes to Claude
+				claudeArgs = append(claudeArgs, arg)
+			}
+		}
+		i++
+	}
 
+	// Define our flags first
 	flag.StringVar(&configPath, "config", "", "Path to config file")
-	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications")
+	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications") 
 	flag.BoolVar(&help, "help", false, "Show help message")
-	flag.Parse()
+	
+	// Parse only our flags
+	flag.CommandLine.Parse(ourArgs)
 
-	// Only show our help if no args were provided with --help
-	if help && len(flag.Args()) == 0 {
+	// Only show our help if --help was provided without other Claude args
+	if help && len(claudeArgs) == 0 {
 		printUsage()
 		os.Exit(0)
 	}
@@ -52,8 +85,8 @@ func main() {
 		cfg.Quiet = true
 	}
 
-	// Get Claude command and args
-	userArgs := flag.Args()
+	// Use the manually parsed Claude args
+	userArgs := claudeArgs
 	var command string
 
 	// Determine claude path
