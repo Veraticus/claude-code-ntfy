@@ -24,11 +24,11 @@ func main() {
 	// Manually parse arguments to separate our flags from Claude's
 	ourArgs := []string{}
 	claudeArgs := []string{}
-	
+
 	i := 1 // Skip program name
 	for i < len(os.Args) {
 		arg := os.Args[i]
-		
+
 		// Check if it's one of our flags
 		switch arg {
 		case "--config", "-config":
@@ -55,11 +55,14 @@ func main() {
 
 	// Define our flags first
 	flag.StringVar(&configPath, "config", "", "Path to config file")
-	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications") 
+	flag.BoolVar(&quiet, "quiet", false, "Disable all notifications")
 	flag.BoolVar(&help, "help", false, "Show help message")
-	
+
 	// Parse only our flags
-	flag.CommandLine.Parse(ourArgs)
+	if err := flag.CommandLine.Parse(ourArgs); err != nil {
+		fmt.Fprintf(os.Stderr, "Error parsing flags: %v\n", err)
+		os.Exit(1)
+	}
 
 	// Only show our help if --help was provided without other Claude args
 	if help && len(claudeArgs) == 0 {
@@ -87,6 +90,12 @@ func main() {
 
 	// Use the manually parsed Claude args
 	userArgs := claudeArgs
+
+	// Debug output
+	if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "1" {
+		fmt.Fprintf(os.Stderr, "claude-code-ntfy: Parsed claude args: %v\n", claudeArgs)
+	}
+
 	var command string
 
 	// Determine claude path
