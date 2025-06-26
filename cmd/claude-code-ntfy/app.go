@@ -50,18 +50,9 @@ func NewDependencies(cfg *config.Config) (*Dependencies, error) {
 	outputMonitor.SetNotifier(deps.Notifier)
 	deps.OutputMonitor = outputMonitor
 
-	// Create input handler that disables backstop timer
-	inputHandler := func() {
-		if backstopNotifier, ok := deps.Notifier.(*notification.BackstopNotifier); ok {
-			backstopNotifier.DisableBackstopTimer()
-			if os.Getenv("CLAUDE_NOTIFY_DEBUG") == "true" {
-				fmt.Fprintf(os.Stderr, "claude-code-ntfy: user input detected, disabling backstop timer\n")
-			}
-		}
-	}
-
-	// Create process manager
-	deps.ProcessManager = process.NewManager(cfg, deps.OutputMonitor, inputHandler)
+	// Create process manager without input handler
+	// The backstop timer will only be reset when visible output is detected
+	deps.ProcessManager = process.NewManager(cfg, deps.OutputMonitor, nil)
 
 	return deps, nil
 }
